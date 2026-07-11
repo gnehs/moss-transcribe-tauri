@@ -159,6 +159,7 @@ mod tests {
             }],
             prompt_tokens: 12,
             generated_tokens: 8,
+            truncated: false,
         }
     }
 

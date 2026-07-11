@@ -94,19 +94,18 @@ pub struct ProgressEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TranscribeOptions {
     pub prompt: Option<String>,
-    #[serde(default = "default_max_new_tokens")]
-    pub max_new_tokens: usize,
-}
-
-fn default_max_new_tokens() -> usize {
-    4096
+    #[serde(default)]
+    pub max_new_tokens: Option<usize>,
+    #[serde(default)]
+    pub convert_to_traditional: bool,
 }
 
 impl Default for TranscribeOptions {
     fn default() -> Self {
         Self {
             prompt: None,
-            max_new_tokens: default_max_new_tokens(),
+            max_new_tokens: None,
+            convert_to_traditional: false,
         }
     }
 }
@@ -127,6 +126,8 @@ pub struct TranscriptResult {
     pub segments: Vec<TranscriptSegment>,
     pub prompt_tokens: usize,
     pub generated_tokens: usize,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -164,5 +165,6 @@ pub struct TranscriptionResponse {
     pub segments: Vec<TranscriptSegment>,
     pub prompt_tokens: usize,
     pub generated_tokens: usize,
+    pub truncated: bool,
     pub outputs: OutputPaths,
 }

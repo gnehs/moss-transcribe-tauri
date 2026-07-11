@@ -4,24 +4,32 @@ import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
 import {
-  FileAudioIcon, FolderOpenIcon, ListPlusIcon, RotateCcwIcon, Trash2Icon,
+  Clock3Icon, FileAudioIcon, FolderOpenIcon, ListPlusIcon, RotateCcwIcon, Trash2Icon, TriangleAlertIcon,
 } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group";
-import { Progress } from "@/components/ui/progress";
+import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { basename, formatDuration, formatTimestamp } from "@/lib/format";
-import type { TaskDraft, TaskStatus, TranscriptionTask } from "@/types/transcription";
+import { basename, formatDuration, formatElapsedClock, formatTimestamp } from "@/lib/format";
+import type { TaskDraft, TaskStatus, TimedTaskStage, TranscriptionTask } from "@/types/transcription";
+
+const stageProgressRanges: Array<{ stage: TimedTaskStage; range: string }> = [
+  { stage: "preparing", range: "0–1%" },
+  { stage: "encoding", range: "1–2%" },
+  { stage: "prefilling", range: "2–3%" },
+  { stage: "generating", range: "3–99%" },
+];
 
 function StatusLabel({ status }: { status: TaskStatus }) {
   switch (status) {
@@ -39,6 +47,19 @@ function statusVariant(status: TaskStatus) {
   if (status === "failed") return "destructive" as const;
   if (status === "completed") return "secondary" as const;
   return status === "queued" ? "outline" as const : "default" as const;
+}
+
+function taskElapsedMs(task: TranscriptionTask, now: number) {
+  if (task.startedAt == null) return null;
+  return Math.max(0, (task.completedAt ?? now) - task.startedAt);
+}
+
+function taskStageElapsedMs(task: TranscriptionTask, stage: TimedTaskStage, now: number) {
+  const completed = task.stageTimings?.[stage] ?? 0;
+  if (task.status === stage && task.stageStartedAt != null) {
+    return completed + Math.max(0, now - task.stageStartedAt);
+  }
+  return completed > 0 ? completed : null;
 }
 
 export function TaskManagerPanel({
@@ -64,12 +85,13 @@ export function TaskManagerPanel({
   const { i18n } = useLingui();
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const [now, setNow] = useState(Date.now());
+  const hasActiveTasks = tasks.some((task) => ["preparing", "encoding", "prefilling", "generating"].includes(task.status));
 
   useEffect(() => {
-    if (!tasks.some((task) => ["preparing", "encoding", "prefilling", "generating"].includes(task.status))) return;
+    if (!hasActiveTasks) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [tasks]);
+  }, [hasActiveTasks]);
 
   return (
     <>
@@ -83,11 +105,19 @@ export function TaskManagerPanel({
               <TableBody>{tasks.map((task) => (
                 <TableRow key={task.id} className="task-row" data-selected={selectedTask?.id === task.id} onClick={() => onSelectedTaskChange(task.id)}>
                   <TableCell className="task-name-cell"><div className="truncate font-medium">{task.fileName}</div><div className="truncate text-xs text-muted-foreground">{task.options.outputDir || <Trans>來源資料夾</Trans>}</div></TableCell>
-                  <TableCell><Badge variant={statusVariant(task.status)}><StatusLabel status={task.status} /></Badge></TableCell>
-                  <TableCell className="task-progress-cell"><div className="task-progress-stack"><Progress value={task.percent} /><div className="task-progress-meta"><span>{task.percent.toFixed(0)}%</span><span className="truncate">{task.message ?? ""}</span></div></div></TableCell>
-                  <TableCell className="task-options-cell"><div className="truncate">{Object.entries(task.options.outputs).filter(([, enabled]) => enabled).map(([format]) => format.toUpperCase()).join(" · ") || <Trans>不輸出檔案</Trans>}</div><div className="truncate text-xs text-muted-foreground"><Trans>最多 {task.options.maxNewTokens} tokens</Trans></div></TableCell>
+                  <TableCell><Badge variant={task.result?.truncated ? "destructive" : statusVariant(task.status)}>{task.result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge></TableCell>
+                  <TableCell className="task-progress-cell">
+                    <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} className="gap-1.5">
+                      <ProgressLabel className="min-w-0 truncate">{task.message ?? <StatusLabel status={task.status} />}</ProgressLabel>
+                      <ProgressValue className="shrink-0">{() => `${task.percent.toFixed(0)}%`}</ProgressValue>
+                    </Progress>
+                    <div className="mt-1.5 flex justify-end">
+                      <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatElapsedClock(taskElapsedMs(task, now))}</Trans></Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell className="task-options-cell"><div className="truncate">{Object.entries(task.options.outputs).filter(([, enabled]) => enabled).map(([format]) => format.toUpperCase()).join(" · ") || <Trans>不輸出檔案</Trans>}</div></TableCell>
                   <TableCell className="text-right"><div className="task-row-actions">
-                    {task.status === "failed" ? <Button variant="ghost" size="icon-sm" onClick={(event) => { event.stopPropagation(); onRetryTask(task.id); }}><RotateCcwIcon data-icon="inline-start" /><span className="sr-only"><Trans>重試</Trans></span></Button> : null}
+                    {task.status === "failed" || task.result?.truncated ? <Button variant="ghost" size="icon-sm" onClick={(event) => { event.stopPropagation(); onRetryTask(task.id); }}><RotateCcwIcon data-icon="inline-start" /><span className="sr-only"><Trans>重試</Trans></span></Button> : null}
                     {task.status !== "preparing" && task.status !== "encoding" && task.status !== "prefilling" && task.status !== "generating" ? <Button variant="ghost" size="icon-sm" onClick={(event) => { event.stopPropagation(); onRemoveTask(task.id); }}><Trash2Icon data-icon="inline-start" /><span className="sr-only"><Trans>移除</Trans></span></Button> : null}
                   </div></TableCell>
                 </TableRow>
@@ -110,8 +140,8 @@ export function TaskManagerPanel({
             <Field orientation="horizontal"><FieldContent><FieldTitle id="task-write-txt"><Trans>輸出 TXT</Trans></FieldTitle><FieldDescription><Trans>純文字轉錄稿。</Trans></FieldDescription></FieldContent><Switch aria-labelledby="task-write-txt" checked={taskDraft.outputs.txt} onCheckedChange={(checked) => onTaskDraftChange((current) => ({ ...current, outputs: { ...current.outputs, txt: checked } }))} /></Field>
             <Field orientation="horizontal"><FieldContent><FieldTitle id="task-write-json"><Trans>輸出 JSON</Trans></FieldTitle><FieldDescription><Trans>保留說話者與時間區段。</Trans></FieldDescription></FieldContent><Switch aria-labelledby="task-write-json" checked={taskDraft.outputs.json} onCheckedChange={(checked) => onTaskDraftChange((current) => ({ ...current, outputs: { ...current.outputs, json: checked } }))} /></Field>
             <Field orientation="horizontal"><FieldContent><FieldTitle id="task-write-srt"><Trans>輸出 SRT</Trans></FieldTitle><FieldDescription><Trans>建立字幕檔。</Trans></FieldDescription></FieldContent><Switch aria-labelledby="task-write-srt" checked={taskDraft.outputs.srt} onCheckedChange={(checked) => onTaskDraftChange((current) => ({ ...current, outputs: { ...current.outputs, srt: checked } }))} /></Field>
+            <Field orientation="horizontal"><FieldContent><FieldTitle id="task-convert-traditional"><Trans>簡體轉繁體</Trans></FieldTitle><FieldDescription><Trans>將轉錄結果轉為台灣繁體中文，套用於畫面與所有匯出檔。</Trans></FieldDescription></FieldContent><Switch aria-labelledby="task-convert-traditional" checked={taskDraft.convertToTraditional} onCheckedChange={(checked) => onTaskDraftChange((current) => ({ ...current, convertToTraditional: checked }))} /></Field>
             <Field><FieldLabel htmlFor="task-prompt"><Trans>提示詞</Trans></FieldLabel><InputGroup><InputGroupTextarea id="task-prompt" value={taskDraft.prompt} placeholder={i18n._(msg`留空使用 MOSS 預設提示詞；也可加入專有名詞`)} onChange={(event) => onTaskDraftChange((current) => ({ ...current, prompt: event.target.value }))} /></InputGroup></Field>
-            <Field><FieldLabel htmlFor="task-max-tokens"><Trans>最大新 Token 數</Trans></FieldLabel><InputGroup><InputGroupInput id="task-max-tokens" type="number" min={1} max={4096} value={taskDraft.maxNewTokens} onChange={(event) => onTaskDraftChange((current) => ({ ...current, maxNewTokens: Math.min(4096, Math.max(1, Number(event.target.value) || 1)) }))} /><InputGroupAddon align="inline-end"><Trans>最多 4096</Trans></InputGroupAddon></InputGroup></Field>
           </FieldGroup><Separator />
           <div className="task-draft-files">{taskDraft.inputPaths.map((path) => <div key={path} className="task-draft-file"><FileAudioIcon /><span className="truncate">{basename(path)}</span></div>)}</div></div>
           <DialogFooter><Button variant="outline" onClick={() => onTaskDialogOpenChange(false)}><Trans>取消</Trans></Button><Button disabled={!taskDraft.inputPaths.length || isConfirmingTasks} onClick={onConfirmTaskDraft}><ListPlusIcon data-icon="inline-start" />{isConfirmingTasks ? <Trans>加入中</Trans> : <Trans>加入任務</Trans>}</Button></DialogFooter>
@@ -129,7 +159,7 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
 }) {
   const { i18n } = useLingui();
   const result = task?.result;
-  const elapsedMs = task?.progress?.elapsedMs ?? (task?.startedAt ? now - task.startedAt : 0);
+  const elapsedMs = task ? taskElapsedMs(task, now) : null;
   const audioDurationMs = task?.progress?.audioDurationMs ?? (result ? result.audioDurationMs : null);
 
   return (
@@ -144,8 +174,8 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
           <ScrollArea className="task-detail-content" viewportClassName="scroll-fade">
             <div className="task-result-stack">
               <div className="flex items-center justify-between gap-2">
-                <Badge variant={statusVariant(task.status)}><StatusLabel status={task.status} /></Badge>
-                <span className="text-xs text-muted-foreground"><Trans>已用 {formatDuration(elapsedMs)}</Trans></span>
+                <Badge variant={result?.truncated ? "destructive" : statusVariant(task.status)}>{result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge>
+                <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatDuration(elapsedMs)}</Trans></Badge>
               </div>
               <div className="flex flex-col gap-1">
                 <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
@@ -154,13 +184,33 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
                   <span className="truncate">{task.message ?? ""}</span>
                 </div>
               </div>
+              <div className="flex flex-col gap-2">
+                <div className="font-medium"><Trans>階段耗時</Trans></div>
+                <Table>
+                  <TableHeader><TableRow><TableHead><Trans>階段</Trans></TableHead><TableHead><Trans>進度範圍</Trans></TableHead><TableHead className="text-right"><Trans>耗時</Trans></TableHead></TableRow></TableHeader>
+                  <TableBody>{stageProgressRanges.map(({ stage, range }) => (
+                    <TableRow key={stage}>
+                      <TableCell><StatusLabel status={stage} /></TableCell>
+                      <TableCell className="font-mono">{range}</TableCell>
+                      <TableCell className="text-right font-mono">{formatElapsedClock(taskStageElapsedMs(task, stage, now))}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div><div className="text-muted-foreground"><Trans>音訊長度</Trans></div><div>{audioDurationMs == null ? "—" : formatDuration(audioDurationMs)}</div></div>
                 <div><div className="text-muted-foreground">Prompt tokens</div><div className="font-mono">{task.progress?.promptTokens ?? result?.promptTokens ?? 0}</div></div>
                 <div><div className="text-muted-foreground">Generated tokens</div><div className="font-mono">{task.progress?.generatedTokens ?? result?.generatedTokens ?? 0}</div></div>
               </div>
               {task.error ? <p className="text-sm text-destructive">{task.error}</p> : null}
-              {task.status === "failed" ? (
+              {result?.truncated ? (
+                <Alert variant="destructive">
+                  <TriangleAlertIcon />
+                  <AlertTitle><Trans>結果不完整</Trans></AlertTitle>
+                  <AlertDescription><Trans>模型已達單次轉錄上限。已保留目前逐字稿；請將較長音訊分段後，重新轉錄遺失的部分。</Trans></AlertDescription>
+                </Alert>
+              ) : null}
+              {task.status === "failed" || result?.truncated ? (
                 <Button variant="outline" onClick={() => onRetryTask(task.id)}>
                   <RotateCcwIcon data-icon="inline-start" /><Trans>重新執行</Trans>
                 </Button>

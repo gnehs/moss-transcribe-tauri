@@ -22,8 +22,8 @@ export function formatBytes(bytes: number) {
   let value = bytes;
   let index = 0;
 
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
+  while (value >= 1000 && index < units.length - 1) {
+    value /= 1000;
     index += 1;
   }
 
@@ -53,6 +53,18 @@ export function formatDuration(ms: number | null | undefined) {
   }
 
   return i18n._(msg`${minutes} 分 ${seconds.toString().padStart(2, "0")} 秒`);
+}
+
+export function formatElapsedClock(ms: number | null | undefined) {
+  if (!Number.isFinite(ms) || ms == null || ms < 0) return "--:--";
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const clock = `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
+  return hours > 0 ? `${hours.toString().padStart(2, "0")}:${clock}` : clock;
 }
 
 export function formatTiming(ms: number | null | undefined) {

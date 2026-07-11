@@ -15,7 +15,10 @@ use memmap2::MmapOptions;
 use mlx_rs::{
     fast::{self, ScaledDotProductAttentionMask},
     nn,
-    ops::{self, indexing::TryIndexOp},
+    ops::{
+        self,
+        indexing::{TryIndexMutOp, TryIndexOp},
+    },
     Array,
 };
 use safetensors::SafeTensors;
@@ -44,6 +47,9 @@ const TEXT_KV_HEADS: i32 = 8;
 const TEXT_HEAD_DIM: i32 = 128;
 const VOCAB_SIZE: i32 = 151_936;
 const PREFILL_CHUNK_SIZE: usize = 4096;
+// Match mlx-lm's block-allocated KVCache. Decode appends one token at a time,
+// so reserving a modest block avoids rebuilding the complete cache per token.
+const KV_CACHE_STEP: i32 = 256;
 const N_MELS: usize = 80;
 const N_FRAMES: usize = 3000;
 
@@ -285,21 +291,8 @@ impl MlxRuntime {
         progress(RuntimeProgress::AudioEncoded);
 
         let ids = Array::from_slice(input_ids, &[1, input_ids.len() as i32]);
-        let mut inputs_embeds = self.qwen.embed(&ids)?;
-        let audio_id = Array::from_slice(&[AUDIO_TOKEN_ID], &[]);
-        let mask = mlx(ids.eq(&audio_id), "build audio placeholder mask")?;
-        let mask = mlx(
-            mask.expand_dims_axes(&[-1]),
-            "expand audio placeholder mask",
-        )?;
-        let mask = mlx(
-            ops::broadcast_to(&mask, inputs_embeds.shape()),
-            "broadcast audio placeholder mask",
-        )?;
-        inputs_embeds = mlx(
-            ops::indexing::masked_scatter(&inputs_embeds, &mask, &audio_embeds),
-            "inject audio embeddings",
-        )?;
+        let token_embeds = self.qwen.embed(&ids)?;
+        let inputs_embeds = inject_audio_embeddings(&token_embeds, input_ids, &audio_embeds)?;
         observe("fused_embeddings", &inputs_embeds)?;
 
         self.qwen.generate(
@@ -309,6 +302,73 @@ impl MlxRuntime {
             &mut observe,
         )
     }
+}
+
+fn inject_audio_embeddings(
+    token_embeds: &Array,
+    token_ids: &[u32],
+    audio_embeds: &Array,
+) -> AppResult<Array> {
+    let [batch, token_count, hidden_size] = shape3(token_embeds, "token embeddings")?;
+    let [audio_batch, audio_token_count, audio_hidden_size] =
+        shape3(audio_embeds, "audio embeddings")?;
+    if batch != 1 || token_ids.len() != token_count as usize {
+        return Err(AppError::Transcription(format!(
+            "Audio injection requires one token ID per embedding; got embeddings {:?} and {} IDs",
+            token_embeds.shape(),
+            token_ids.len()
+        )));
+    }
+    if audio_batch != 1 || audio_hidden_size != hidden_size {
+        return Err(AppError::Transcription(format!(
+            "Audio embeddings {:?} are incompatible with token embeddings {:?}",
+            audio_embeds.shape(),
+            token_embeds.shape()
+        )));
+    }
+
+    // Build an explicit token -> audio-row mapping on the Rust side. Gathering
+    // aligned rows and selecting with `where` avoids masked_scatter's flattened
+    // source contract while all large embeddings remain in MLX memory.
+    let (replacement_indices, audio_mask) =
+        audio_replacement_map(token_ids, audio_token_count as usize)?;
+    let indices = Array::from_slice(&replacement_indices, &[token_count]);
+    let replacements = mlx(
+        audio_embeds.take_axis(&indices, 1),
+        "align audio embeddings with prompt tokens",
+    )?;
+    let mask = Array::from_slice(&audio_mask, &[1, token_count]);
+    let mask = mlx(mask.expand_dims_axes(&[-1]), "expand audio selection mask")?;
+    mlx(
+        ops::r#where(&mask, &replacements, token_embeds),
+        "inject audio embeddings",
+    )
+}
+
+fn audio_replacement_map(
+    token_ids: &[u32],
+    audio_token_count: usize,
+) -> AppResult<(Vec<u32>, Vec<bool>)> {
+    let mut next_audio_row = 0_u32;
+    let mut replacement_indices = Vec::with_capacity(token_ids.len());
+    let mut audio_mask = Vec::with_capacity(token_ids.len());
+    for token_id in token_ids {
+        let is_audio = *token_id == AUDIO_TOKEN_ID;
+        audio_mask.push(is_audio);
+        replacement_indices.push(if is_audio {
+            let row = next_audio_row;
+            next_audio_row += 1;
+            row
+        } else {
+            0
+        });
+    }
+    if next_audio_row as usize != audio_token_count {
+        return Err(AppError::Transcription(format!(
+            "Audio placeholder count ({next_audio_row}) does not match audio embeddings ({audio_token_count})"
+        )));
+    }
+    Ok((replacement_indices, audio_mask))
 }
 
 /// Generate deterministic native probes from the exact production forward
@@ -999,37 +1059,159 @@ impl VqAdaptor {
 struct KvCache {
     keys: Option<Array>,
     values: Option<Array>,
+    offset: i32,
+    reserve: i32,
 }
 
 impl KvCache {
+    fn with_reserve(prompt_length: i32) -> AppResult<Self> {
+        Ok(Self {
+            reserve: initial_kv_capacity(prompt_length)?,
+            ..Self::default()
+        })
+    }
+
     fn offset(&self) -> i32 {
-        self.keys.as_ref().map_or(0, |keys| keys.dim(-2))
+        self.offset
     }
 
     fn append(&mut self, keys: Array, values: Array) -> AppResult<(Array, Array)> {
-        let keys = match self.keys.take() {
-            Some(cached) => mlx(ops::concatenate_axis(&[cached, keys], -2), "append KV keys")?,
-            None => keys,
-        };
-        let values = match self.values.take() {
-            Some(cached) => mlx(
-                ops::concatenate_axis(&[cached, values], -2),
-                "append KV values",
-            )?,
-            None => values,
-        };
-        let expected = [1, TEXT_KV_HEADS, keys.dim(-2), TEXT_HEAD_DIM];
-        if keys.shape() != expected || values.shape() != expected {
+        let length = keys.dim(-2);
+        let expected = [1, TEXT_KV_HEADS, length, TEXT_HEAD_DIM];
+        if length <= 0 || keys.shape() != expected || values.shape() != expected {
             return Err(AppError::Transcription(format!(
                 "Invalid GQA KV cache shape: keys {:?}, values {:?}, expected {expected:?}",
                 keys.shape(),
                 values.shape()
             )));
         }
-        self.keys = Some(keys.clone());
-        self.values = Some(values.clone());
-        Ok((keys, values))
+
+        let previous = self.offset;
+        let end = previous
+            .checked_add(length)
+            .ok_or_else(|| AppError::Transcription("Qwen KV cache offset overflowed".into()))?;
+        let capacity = self.keys.as_ref().map_or(0, |cached| cached.dim(-2));
+
+        if end > capacity {
+            // Allocate enough complete blocks for this append. If an unusual
+            // append crosses a boundary before consuming the old spare block,
+            // discard that unused tail before extending, as mlx-lm does.
+            let target_capacity = next_kv_capacity(previous, capacity, length)?.max(self.reserve);
+            let added_capacity = target_capacity - previous;
+            let key_zeros = mlx(
+                ops::zeros_dtype(
+                    &[1, TEXT_KV_HEADS, added_capacity, TEXT_HEAD_DIM],
+                    keys.dtype(),
+                ),
+                "allocate KV key block",
+            )?;
+            let value_zeros = mlx(
+                ops::zeros_dtype(
+                    &[1, TEXT_KV_HEADS, added_capacity, TEXT_HEAD_DIM],
+                    values.dtype(),
+                ),
+                "allocate KV value block",
+            )?;
+
+            let (expanded_keys, expanded_values) = match (&self.keys, &self.values) {
+                (Some(cached_keys), Some(cached_values)) => {
+                    let valid_keys = mlx(
+                        cached_keys.try_index((.., .., ..previous, ..)),
+                        "trim unused KV key capacity",
+                    )?;
+                    let valid_values = mlx(
+                        cached_values.try_index((.., .., ..previous, ..)),
+                        "trim unused KV value capacity",
+                    )?;
+                    (
+                        mlx(
+                            ops::concatenate_axis(&[valid_keys, key_zeros], -2),
+                            "expand KV key cache",
+                        )?,
+                        mlx(
+                            ops::concatenate_axis(&[valid_values, value_zeros], -2),
+                            "expand KV value cache",
+                        )?,
+                    )
+                }
+                (None, None) => (key_zeros, value_zeros),
+                _ => {
+                    return Err(AppError::Transcription(
+                        "Qwen KV key/value cache state is inconsistent".into(),
+                    ));
+                }
+            };
+            self.keys = Some(expanded_keys);
+            self.values = Some(expanded_values);
+        }
+
+        let cached_keys = self
+            .keys
+            .as_mut()
+            .ok_or_else(|| AppError::Transcription("Qwen KV key cache was not allocated".into()))?;
+        mlx(
+            cached_keys.try_index_mut((.., .., previous..end, ..), &keys),
+            "update KV key cache",
+        )?;
+        let cached_values = self.values.as_mut().ok_or_else(|| {
+            AppError::Transcription("Qwen KV value cache was not allocated".into())
+        })?;
+        mlx(
+            cached_values.try_index_mut((.., .., previous..end, ..), &values),
+            "update KV value cache",
+        )?;
+        self.offset = end;
+
+        let valid_keys = mlx(
+            cached_keys.try_index((.., .., ..end, ..)),
+            "slice valid KV keys",
+        )?;
+        let valid_values = mlx(
+            cached_values.try_index((.., .., ..end, ..)),
+            "slice valid KV values",
+        )?;
+        Ok((valid_keys, valid_values))
     }
+}
+
+fn next_kv_capacity(previous: i32, capacity: i32, length: i32) -> AppResult<i32> {
+    if previous < 0 || capacity < previous || length <= 0 {
+        return Err(AppError::Transcription(format!(
+            "Invalid KV cache allocation state: offset {previous}, capacity {capacity}, append {length}"
+        )));
+    }
+    let end = previous
+        .checked_add(length)
+        .ok_or_else(|| AppError::Transcription("Qwen KV cache capacity overflowed".into()))?;
+    if end <= capacity {
+        return Ok(capacity);
+    }
+    let blocks = length
+        .checked_add(KV_CACHE_STEP - 1)
+        .ok_or_else(|| AppError::Transcription("Qwen KV cache capacity overflowed".into()))?
+        / KV_CACHE_STEP;
+    let added = blocks
+        .checked_mul(KV_CACHE_STEP)
+        .ok_or_else(|| AppError::Transcription("Qwen KV cache capacity overflowed".into()))?;
+    previous
+        .checked_add(added)
+        .ok_or_else(|| AppError::Transcription("Qwen KV cache capacity overflowed".into()))
+}
+
+fn initial_kv_capacity(prompt_length: i32) -> AppResult<i32> {
+    if prompt_length <= 0 {
+        return Err(AppError::Transcription(format!(
+            "Invalid Qwen prompt length for KV cache: {prompt_length}"
+        )));
+    }
+    let requested = prompt_length
+        .checked_add(KV_CACHE_STEP)
+        .and_then(|value| value.checked_add(KV_CACHE_STEP - 1))
+        .ok_or_else(|| AppError::Transcription("Qwen KV cache capacity overflowed".into()))?;
+    let blocks = requested / KV_CACHE_STEP;
+    blocks
+        .checked_mul(KV_CACHE_STEP)
+        .ok_or_else(|| AppError::Transcription("Qwen KV cache capacity overflowed".into()))
 }
 
 #[derive(Debug)]
@@ -1255,8 +1437,8 @@ impl Qwen3 {
         }
 
         let mut caches = (0..TEXT_LAYERS)
-            .map(|_| KvCache::default())
-            .collect::<Vec<_>>();
+            .map(|_| KvCache::with_reserve(prompt_length as i32))
+            .collect::<AppResult<Vec<_>>>()?;
         let mut last_hidden = None;
         for start in (0..prompt_length).step_by(PREFILL_CHUNK_SIZE) {
             let end = (start + PREFILL_CHUNK_SIZE).min(prompt_length);
@@ -1363,6 +1545,71 @@ mod tests {
         assert!(manifest.contains_key("model.whisper_encoder.layers.23.self_attn.q_proj.bias"));
         assert!(!manifest.contains_key("model.whisper_encoder.layers.23.self_attn.k_proj.bias"));
         assert!(manifest.contains_key("model.language_model.layers.27.self_attn.q_norm.weight"));
+    }
+
+    #[test]
+    fn injects_one_hidden_row_per_audio_placeholder() {
+        let token_ids = [7_u32, AUDIO_TOKEN_ID, 8, AUDIO_TOKEN_ID, 9];
+        let (indices, mask) =
+            audio_replacement_map(&token_ids, 2).expect("audio rows should align");
+        assert_eq!(
+            indices,
+            vec![0, 0, 0, 1, 0],
+            "audio placeholders must consume embedding rows in prompt order"
+        );
+        assert_eq!(mask, vec![false, true, false, true, false]);
+        assert!(audio_replacement_map(&token_ids, 1).is_err());
+    }
+
+    #[test]
+    fn kv_cache_reserves_blocks_without_growing_each_decode_token() {
+        assert_eq!(next_kv_capacity(0, 0, 250).expect("first block"), 256);
+        assert_eq!(next_kv_capacity(250, 256, 1).expect("use spare"), 256);
+        assert_eq!(next_kv_capacity(251, 256, 1).expect("use spare"), 256);
+        assert_eq!(next_kv_capacity(256, 256, 1).expect("grow block"), 512);
+
+        // Crossing a boundary with spare capacity trims that unused tail and
+        // attaches a complete new block after the valid prefix, like mlx-lm.
+        assert_eq!(next_kv_capacity(250, 256, 10).expect("cross block"), 506);
+    }
+
+    #[test]
+    fn kv_cache_reserves_the_full_chunked_prefill_and_decode_room() {
+        let reserve = initial_kv_capacity(5_000).expect("reserve full prompt");
+        assert_eq!(reserve, 5_376);
+        let first = next_kv_capacity(0, 0, PREFILL_CHUNK_SIZE as i32)
+            .expect("allocate first prefill chunk")
+            .max(reserve);
+        assert_eq!(first, reserve);
+        let second = next_kv_capacity(4_096, first, 904).expect("append final prefill chunk");
+        assert_eq!(second, reserve, "prefill must not copy the cache again");
+
+        // The final prefill offset is 5000, so the reserved decode block also
+        // avoids allocation for the first 376 generated tokens.
+        assert_eq!(
+            next_kv_capacity(5_000, reserve, 1).expect("decode spare"),
+            reserve
+        );
+        assert_eq!(
+            next_kv_capacity(5_375, reserve, 1).expect("last spare"),
+            reserve
+        );
+        assert_eq!(
+            next_kv_capacity(5_376, reserve, 1).expect("next block"),
+            5_632
+        );
+
+        let hour_prompt_reserve = initial_kv_capacity(45_000).expect("reserve hour prompt");
+        assert_eq!(hour_prompt_reserve, 45_312);
+        assert_eq!(
+            next_kv_capacity(40_960, hour_prompt_reserve, 4_040)
+                .expect("append final hour prefill chunk"),
+            hour_prompt_reserve
+        );
+
+        assert!(next_kv_capacity(2, 1, 1).is_err());
+        assert!(next_kv_capacity(0, 0, 0).is_err());
+        assert!(initial_kv_capacity(0).is_err());
     }
 
     #[cfg(feature = "parity-trace")]

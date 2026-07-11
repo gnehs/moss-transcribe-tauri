@@ -9,6 +9,13 @@ export type TaskStatus =
   | "completed"
   | "failed";
 
+export type TimedTaskStage = Extract<
+  TaskStatus,
+  "preparing" | "encoding" | "prefilling" | "generating"
+>;
+
+export type StageTimings = Partial<Record<TimedTaskStage, number>>;
+
 export type OutputOptions = {
   txt: boolean;
   json: boolean;
@@ -19,7 +26,7 @@ export type TaskOptions = {
   outputDir: string;
   outputs: OutputOptions;
   prompt: string | null;
-  maxNewTokens: number;
+  convertToTraditional: boolean;
 };
 
 export type CommandError = {
@@ -93,6 +100,7 @@ export type TranscriptionResult = {
   segments: TranscriptSegment[];
   promptTokens: number;
   generatedTokens: number;
+  truncated: boolean;
   outputs: {
     txtPath: string | null;
     jsonPath: string | null;
@@ -107,6 +115,8 @@ export type TranscriptionTask = TaskSummary & {
   error: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  stageStartedAt: number | null;
+  stageTimings: StageTimings;
 };
 
 export type TaskDraft = {
@@ -114,7 +124,7 @@ export type TaskDraft = {
   outputDir: string;
   outputs: OutputOptions;
   prompt: string;
-  maxNewTokens: number;
+  convertToTraditional: boolean;
 };
 
 export type ModelStatus = {

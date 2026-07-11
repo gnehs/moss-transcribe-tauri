@@ -342,33 +342,6 @@
   min-width: 170px;
 }
 
-.task-progress-stack {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.task-progress-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.task-progress-meta > span {
-  min-width: 0;
-}
-
-.task-progress-meta > span:last-child {
-  text-align: right;
-}
-
 .task-options-cell {
   max-width: 180px;
 }

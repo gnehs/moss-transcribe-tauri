@@ -1,7 +1,7 @@
 import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import { DownloadIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { DownloadIcon, EllipsisIcon, FolderOpenIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,14 @@ import {
 } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Progress } from "@/components/ui/progress";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -45,6 +53,7 @@ type SettingsPanelProps = {
   onDownload: () => void;
   onRedownload: () => void;
   onDelete: () => void;
+  onRevealModel: () => void;
   onRefreshFfmpeg: () => void;
 };
 
@@ -58,6 +67,7 @@ export function SettingsPanel({
   onDownload,
   onRedownload,
   onDelete,
+  onRevealModel,
   onRefreshFfmpeg,
 }: SettingsPanelProps) {
   const [isChangingLocale, setIsChangingLocale] = useState(false);
@@ -108,45 +118,81 @@ export function SettingsPanel({
         </div>
         <Card size="sm">
           <CardHeader>
-            <CardTitle>{mossModelRepository}</CardTitle>
-            <CardDescription className="truncate">{model.path || <Trans>尚未下載</Trans>}</CardDescription>
-            <CardAction>
+            <CardTitle className="min-w-0 truncate">{mossModelRepository}</CardTitle>
+            <CardDescription className="flex items-center gap-2">
+              <span>{formatBytes(model.bytesOnDisk)}</span>
+              {model.missingFiles.length ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span><Trans>缺少 {model.missingFiles.length} 個檔案</Trans></span>
+                </>
+              ) : null}
+            </CardDescription>
+            <CardAction className="flex items-center gap-1">
               <Badge variant={ready ? "secondary" : "outline"}>
                 {ready ? <Trans>已下載</Trans> : isDownloading ? <Trans>下載中</Trans> : <Trans>未下載</Trans>}
               </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={<Button variant="ghost" size="icon-sm" />}
+                >
+                  <EllipsisIcon />
+                  <span className="sr-only"><Trans>模型操作</Trans></span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      disabled={!model.path || (!ready && model.bytesOnDisk <= 0)}
+                      onClick={() => { void onRevealModel(); }}
+                    >
+                      <FolderOpenIcon data-icon="inline-start" />
+                      <Trans>在 Finder 顯示</Trans>
+                    </DropdownMenuItem>
+                    {ready ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={isDownloading || deletingModel}
+                          onClick={onRedownload}
+                        >
+                          <RefreshCwIcon data-icon="inline-start" />
+                          <Trans>重新下載</Trans>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={isDownloading || deletingModel}
+                          onClick={onDelete}
+                        >
+                          <Trash2Icon data-icon="inline-start" />
+                          <Trans>刪除</Trans>
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </CardAction>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-              <span>{formatBytes(model.bytesOnDisk)} {model.sizeHint ? `· ${model.sizeHint}` : ""}</span>
-              <span>{model.missingFiles.length ? <Trans>缺少 {model.missingFiles.length} 個檔案</Trans> : ""}</span>
-            </div>
-            {isDownloading && downloadProgress ? (
-              <div className="flex flex-col gap-1">
-                <Progress value={downloadProgress.percent} aria-label={i18n._(msg`模型下載進度`)} />
-                <div className="flex justify-between gap-2 text-xs text-muted-foreground">
-                  <span className="truncate">{downloadProgress.currentFile ?? downloadProgress.message}</span>
-                  <span>{downloadProgress.percent.toFixed(0)}%</span>
+          {isDownloading || !ready ? (
+            <CardContent className="flex flex-col gap-3">
+              {isDownloading && downloadProgress ? (
+                <div className="flex flex-col gap-1">
+                  <Progress value={downloadProgress.percent} aria-label={i18n._(msg`模型下載進度`)} />
+                  <div className="flex justify-between gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">{downloadProgress.currentFile ?? downloadProgress.message}</span>
+                    <span>{downloadProgress.percent.toFixed(0)}%</span>
+                  </div>
                 </div>
-              </div>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
+              ) : null}
               {!ready ? (
-                <Button disabled={isDownloading || deletingModel} onClick={onDownload}>
-                  <DownloadIcon data-icon="inline-start" /><Trans>下載模型</Trans>
-                </Button>
-              ) : (
-                <>
-                  <Button variant="outline" disabled={isDownloading || deletingModel} onClick={onRedownload}>
-                    <RefreshCwIcon data-icon="inline-start" /><Trans>重新下載</Trans>
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={isDownloading || deletingModel} onClick={onDownload}>
+                    <DownloadIcon data-icon="inline-start" /><Trans>下載模型</Trans>
                   </Button>
-                  <Button variant="outline" disabled={isDownloading || deletingModel} onClick={onDelete}>
-                    <Trash2Icon data-icon="inline-start" /><Trans>刪除</Trans>
-                  </Button>
-                </>
-              )}
-            </div>
-          </CardContent>
+                </div>
+              ) : null}
+            </CardContent>
+          ) : null}
         </Card>
       </section>
 

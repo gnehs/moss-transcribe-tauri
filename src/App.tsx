@@ -72,6 +72,7 @@ function App() {
                       onDownload={() => { void workspace.downloadModel().catch(() => {}); }}
                       onRedownload={() => { void workspace.downloadModel(true).catch(() => {}); }}
                       onDelete={() => { void workspace.deleteModel(); }}
+                      onRevealModel={() => { void workspace.revealModel(); }}
                       onRefreshFfmpeg={() => { void workspace.recheckFfmpeg(); }}
                     />
                   </div>

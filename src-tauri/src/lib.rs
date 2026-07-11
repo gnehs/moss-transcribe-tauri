@@ -1,4 +1,5 @@
 mod audio;
+mod conversion;
 mod downloader;
 mod error;
 mod export;
@@ -146,7 +147,7 @@ fn run_transcription(
     let result: AppResult<TranscriptionResponse> = (|| {
         emit(
             TaskStage::Preparing,
-            1.0,
+            0.5,
             "Decoding media".into(),
             None,
             0,
@@ -157,7 +158,7 @@ fn run_transcription(
         let duration = Some(decoded.duration_ms);
         emit(
             TaskStage::Encoding,
-            5.0,
+            1.0,
             "Loading MOSS model".into(),
             duration,
             0,
@@ -174,13 +175,17 @@ fn run_transcription(
             .as_mut()
             .ok_or_else(|| AppError::Transcription("MOSS model could not be loaded".into()))?;
         let task_id = request.task_id.clone();
-        let transcript =
+        let mut transcript =
             transcriber.transcribe(&decoded.pcm, &request.options, |mut progress| {
                 progress.task_id.clone_from(&task_id);
                 progress.elapsed_ms = started.elapsed().as_millis() as u64;
                 progress.audio_duration_ms = duration;
                 let _ = app.emit("transcription-progress", progress);
             })?;
+
+        if request.options.convert_to_traditional {
+            conversion::simplified_to_traditional(&mut transcript)?;
+        }
 
         let outputs = export::export_result(&audio_path, &request.export, &transcript)?;
         emit(
@@ -198,6 +203,7 @@ fn run_transcription(
             segments: transcript.segments,
             prompt_tokens: transcript.prompt_tokens,
             generated_tokens: transcript.generated_tokens,
+            truncated: transcript.truncated,
             outputs,
         })
     })();
@@ -212,9 +218,13 @@ fn validate_request(request: &TranscribeFileRequest) -> AppResult<()> {
     if request.task_id.trim().is_empty() {
         return Err(AppError::Transcription("Task ID is required".into()));
     }
-    if request.options.max_new_tokens == 0 || request.options.max_new_tokens > 131_072 {
+    if request
+        .options
+        .max_new_tokens
+        .is_some_and(|limit| limit == 0 || limit > 131_072)
+    {
         return Err(AppError::Transcription(
-            "maxNewTokens must be between 1 and 131072".into(),
+            "maxNewTokens must be between 1 and 131072 when provided".into(),
         ));
     }
     Ok(())

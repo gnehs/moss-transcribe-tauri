@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 dirs = "6"
+ferrous-opencc = "0.4"
 hf-hub = { version = "1.0.0-rc.1", features = ["blocking", "rustls-tls"] }
 hound = "3.5"
 memmap2 = "0.9"

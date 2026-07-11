@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 
 import { audioFilters, defaultTaskDraft } from "@/lib/app-constants";
@@ -16,10 +17,34 @@ import type {
   SystemInfo,
   TaskDraft,
   TaskStatus,
+  TimedTaskStage,
   TranscriptionProgress,
   TranscriptionResult,
   TranscriptionTask,
 } from "@/types/transcription";
+
+const timedTaskStages = new Set<TaskStatus>(["preparing", "encoding", "prefilling", "generating"]);
+
+function isTimedTaskStage(status: TaskStatus): status is TimedTaskStage {
+  return timedTaskStages.has(status);
+}
+
+function transitionTaskStage(task: TranscriptionTask, nextStage: TaskStatus, changedAt: number) {
+  if (task.status === nextStage) return {
+    stageStartedAt: task.stageStartedAt,
+    stageTimings: task.stageTimings,
+  };
+
+  const stageTimings = { ...(task.stageTimings ?? {}) };
+  if (isTimedTaskStage(task.status) && task.stageStartedAt != null) {
+    stageTimings[task.status] = (stageTimings[task.status] ?? 0) + Math.max(0, changedAt - task.stageStartedAt);
+  }
+
+  return {
+    stageStartedAt: isTimedTaskStage(nextStage) ? changedAt : null,
+    stageTimings,
+  };
+}
 
 const supportedExtensions = new Set(
   audioFilters.flatMap((filter) => filter.extensions.map((extension) => extension.toLowerCase())),
@@ -103,10 +128,14 @@ export function useTranscriptionWorkspace() {
 
   const runQueuedTask = useCallback(async (task: TranscriptionTask) => {
     runningTaskIdRef.current = task.id;
+    const startedAt = Date.now();
     setTasks((current) => current.map((item) => item.id === task.id ? {
       ...item,
       status: "preparing",
-      startedAt: Date.now(),
+      startedAt,
+      completedAt: null,
+      stageStartedAt: startedAt,
+      stageTimings: {},
       error: null,
       result: null,
       progress: null,
@@ -118,7 +147,7 @@ export function useTranscriptionWorkspace() {
           audioPath: task.inputPath,
           options: {
             prompt: task.options.prompt,
-            maxNewTokens: task.options.maxNewTokens,
+            convertToTraditional: task.options.convertToTraditional,
           },
           export: {
             outputDir: task.options.outputDir || null,
@@ -128,24 +157,34 @@ export function useTranscriptionWorkspace() {
           },
         },
       });
+      const completedAt = Date.now();
       setTasks((current) => current.map((item) => item.id === task.id ? {
         ...item,
+        ...transitionTaskStage(item, "completed", completedAt),
         status: "completed",
         percent: 100,
         progress: null,
         result,
-        completedAt: Date.now(),
+        completedAt,
         updatedAt: new Date().toISOString(),
       } : item));
-      toast.success(i18n._(msg`${basename(task.inputPath)} 已完成`));
+      if (result.truncated) {
+        toast.warning(i18n._(msg`結果不完整`), {
+          description: i18n._(msg`已保留目前逐字稿。請將較長音訊分段後，重新轉錄遺失的部分。`),
+        });
+      } else {
+        toast.success(i18n._(msg`${basename(task.inputPath)} 已完成`));
+      }
     } catch (error) {
       const message = formatInvokeError(error);
+      const completedAt = Date.now();
       setTasks((current) => current.map((item) => item.id === task.id ? {
         ...item,
+        ...transitionTaskStage(item, "failed", completedAt),
         status: "failed",
         error: message,
         progress: null,
-        completedAt: Date.now(),
+        completedAt,
         updatedAt: new Date().toISOString(),
       } : item));
       toast.error(i18n._(msg`${basename(task.inputPath)} 失敗`), { description: message });
@@ -160,8 +199,10 @@ export function useTranscriptionWorkspace() {
       listen<TranscriptionProgress>("transcription-progress", (event) => {
         const progress = event.payload;
         if (!progress.taskId || progress.taskId !== runningTaskIdRef.current) return;
+        const changedAt = Date.now();
         setTasks((current) => current.map((task) => task.id === progress.taskId ? {
           ...task,
+          ...transitionTaskStage(task, progress.stage as TaskStatus, changedAt),
           status: progress.stage as TaskStatus,
           percent: Math.max(0, Math.min(100, progress.percent)),
           message: progress.message,
@@ -219,8 +260,10 @@ export function useTranscriptionWorkspace() {
         id: createTaskId(), inputPath, fileName: basename(inputPath), status: "queued", percent: 0,
         message: null, createdAt: now, updatedAt: now, revision: index, options: {
           outputDir: taskDraft.outputDir, outputs: taskDraft.outputs,
-          prompt: taskDraft.prompt.trim() || null, maxNewTokens: taskDraft.maxNewTokens,
+          prompt: taskDraft.prompt.trim() || null,
+          convertToTraditional: taskDraft.convertToTraditional,
         }, progress: null, result: null, error: null, startedAt: null, completedAt: null,
+        stageStartedAt: null, stageTimings: {},
       }));
       setTasks((current) => [...current, ...nextTasks]);
       setTaskDialogOpen(false);
@@ -264,10 +307,19 @@ export function useTranscriptionWorkspace() {
     finally { setDeletingModel(false); }
   }
 
+  async function revealModel() {
+    if (!model.path) return;
+    try {
+      await revealItemInDir(model.path);
+    } catch (error) {
+      toast.error(formatInvokeError(error));
+    }
+  }
+
   function retryTask(taskId: string) {
     setTasks((current) => current.map((task) => task.id === taskId ? {
       ...task, status: "queued", percent: 0, error: null, progress: null, result: null,
-      startedAt: null, completedAt: null,
+      startedAt: null, completedAt: null, stageStartedAt: null, stageTimings: {},
     } : task));
   }
 
@@ -285,6 +337,6 @@ export function useTranscriptionWorkspace() {
     isDownloading, downloadProgress, isConfirmingTasks, deletingModel, selectedTaskId,
     setTaskDraft, setTaskDialogOpen, setSelectedTaskId, pickFilesForTasks, pickTaskOutputDir,
     confirmTaskDraft, downloadModel, deleteModel, retryTask, removeTask, clearFinishedTasks,
-    refreshRuntime, recheckFfmpeg,
+    revealModel, refreshRuntime, recheckFfmpeg,
   };
 }

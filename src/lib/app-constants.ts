@@ -14,5 +14,5 @@ export const defaultTaskDraft: TaskDraft = {
   outputDir: "",
   outputs: { txt: true, json: true, srt: true },
   prompt: "",
-  maxNewTokens: 4096,
+  convertToTraditional: false,
 };

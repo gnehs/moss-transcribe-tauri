@@ -21,6 +21,11 @@ use mlx_runtime::{MlxRuntime, RuntimeProgress};
 
 pub use mel::{chunk_audio, WhisperLogMel};
 pub use processor::MossProcessor;
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+use processor::{EOS_TOKEN_ID, PAD_TOKEN_ID};
+
+const LONG_AUDIO_MAX_NEW_TOKENS: usize = 65_536;
+const ESTIMATED_OUTPUT_TOKEN_OVERHEAD: usize = 128;
 
 #[derive(Debug, Deserialize)]
 struct MossConfig {
@@ -51,12 +56,18 @@ struct AudioConfig {
     max_source_positions: usize,
 }
 
+#[derive(Debug, Deserialize)]
+struct GenerationConfig {
+    max_new_tokens: usize,
+}
+
 /// Native MOSS inference owner. The MLX tensors remain on the Rust side and are
 /// never exposed through Tauri IPC.
 #[derive(Debug)]
 pub struct MossTranscriber {
     processor: MossProcessor,
     mel: WhisperLogMel,
+    max_new_tokens: usize,
     #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
     runtime: MlxRuntime,
 }
@@ -67,6 +78,18 @@ impl MossTranscriber {
             serde_json::from_reader(std::fs::File::open(model_dir.join("config.json"))?)
                 .map_err(|error| AppError::Model(format!("Invalid model config: {error}")))?;
         validate_config(&config)?;
+        let generation: GenerationConfig = serde_json::from_reader(std::fs::File::open(
+            model_dir.join("generation_config.json"),
+        )?)
+        .map_err(|error| AppError::Model(format!("Invalid generation config: {error}")))?;
+        if generation.max_new_tokens == 0
+            || generation.max_new_tokens > config.text_config.max_position_embeddings
+        {
+            return Err(AppError::Model(format!(
+                "Invalid model generation limit: {}",
+                generation.max_new_tokens
+            )));
+        }
         let processor = MossProcessor::load(model_dir)?;
         let weights = model_dir.join("model-00000-of-00001.safetensors");
         if !weights.is_file() {
@@ -77,6 +100,7 @@ impl MossTranscriber {
         Ok(Self {
             processor,
             mel: WhisperLogMel::new(),
+            max_new_tokens: generation.max_new_tokens,
             #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
             runtime,
         })
@@ -88,16 +112,19 @@ impl MossTranscriber {
         options: &TranscribeOptions,
         progress: impl Fn(ProgressEvent),
     ) -> AppResult<TranscriptResult> {
-        if options.max_new_tokens == 0 || options.max_new_tokens > 131_072 {
+        if options
+            .max_new_tokens
+            .is_some_and(|limit| limit == 0 || limit > 131_072)
+        {
             return Err(AppError::Transcription(
-                "max_new_tokens must be between 1 and 131072".into(),
+                "max_new_tokens must be between 1 and 131072 when provided".into(),
             ));
         }
         let chunks = chunk_audio(pcm)?;
         progress(ProgressEvent {
             task_id: String::new(),
             stage: TaskStage::Encoding,
-            percent: 10.0,
+            percent: 1.5,
             message: format!("Preparing {} Whisper chunk(s)", chunks.len()),
             elapsed_ms: 0,
             audio_duration_ms: Some((pcm.len() as f64 / 16_000.0 * 1000.0) as u64),
@@ -117,19 +144,25 @@ impl MossTranscriber {
             .processor
             .expanded_input_ids(audio_tokens, options.prompt.as_deref())?;
         let prompt_tokens = input_ids.len();
-
         #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
         {
+            let max_new_tokens = resolve_generation_limit(
+                self.max_new_tokens,
+                options.max_new_tokens,
+                audio_tokens,
+                prompt_tokens,
+                131_072,
+            )?;
             let generated = self.runtime.generate(
                 &input_ids,
                 &mel_chunks,
                 &audio_feature_lengths,
-                options.max_new_tokens,
+                max_new_tokens,
                 |runtime_progress| {
                     let (stage, percent, message, generated_tokens) = match runtime_progress {
                         RuntimeProgress::AudioEncoded => (
                             TaskStage::Prefilling,
-                            45.0,
+                            2.0,
                             "Whisper and VQAdaptor encoding complete".to_string(),
                             0,
                         ),
@@ -137,14 +170,14 @@ impl MossTranscriber {
                             let ratio = completed as f64 / total.max(1) as f64;
                             (
                                 TaskStage::Prefilling,
-                                45.0 + ratio * 25.0,
+                                2.0 + ratio,
                                 format!("Prefilling prompt tokens {completed}/{total}"),
                                 0,
                             )
                         }
                         RuntimeProgress::Token { generated } => (
                             TaskStage::Generating,
-                            70.0 + generated as f64 / options.max_new_tokens as f64 * 29.0,
+                            generation_progress_percent(generated, audio_tokens),
                             format!("Generated {generated} tokens"),
                             generated,
                         ),
@@ -161,6 +194,7 @@ impl MossTranscriber {
                     });
                 },
             )?;
+            let truncated = generation_was_truncated(&generated);
             let text = self.processor.decode(&generated)?.trim().to_string();
             let segments = parse_transcript(&text);
             if segments.is_empty() {
@@ -173,6 +207,7 @@ impl MossTranscriber {
                 segments,
                 prompt_tokens,
                 generated_tokens: generated.len(),
+                truncated,
             });
         }
 
@@ -183,6 +218,49 @@ impl MossTranscriber {
                 "This build does not include the Apple Silicon MLX runtime".into(),
             ))
         }
+    }
+}
+
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+fn generation_was_truncated(tokens: &[u32]) -> bool {
+    !tokens
+        .last()
+        .is_some_and(|token| *token == EOS_TOKEN_ID || *token == PAD_TOKEN_ID)
+}
+
+fn generation_progress_percent(generated_tokens: usize, audio_tokens: usize) -> f64 {
+    // MOSS emits roughly one transcript token per merged audio placeholder on
+    // the first measured long-form sample. A small overhead allowance keeps
+    // the bar below 99% until timestamps, speaker tags, and EOS are emitted.
+    let estimated_output_tokens = audio_tokens
+        .saturating_add(ESTIMATED_OUTPUT_TOKEN_OVERHEAD)
+        .max(1);
+    let ratio = generated_tokens as f64 / estimated_output_tokens as f64;
+    3.0 + ratio.min(1.0) * 96.0
+}
+
+fn resolve_generation_limit(
+    model_default: usize,
+    requested: Option<usize>,
+    audio_tokens: usize,
+    prompt_tokens: usize,
+    context_size: usize,
+) -> AppResult<usize> {
+    let remaining_context = context_size.saturating_sub(prompt_tokens);
+    // Audio placeholders represent roughly 80 ms each. Two output tokens per
+    // audio token is a deliberately generous ceiling for dense multilingual
+    // speech plus timestamps/speaker tags. It grows smoothly for long audio,
+    // while the model's EOS normally ends generation far below the ceiling.
+    let automatic_limit = model_default
+        .max(audio_tokens.saturating_mul(2))
+        .min(LONG_AUDIO_MAX_NEW_TOKENS);
+    let limit = requested.unwrap_or(automatic_limit).min(remaining_context);
+    if limit == 0 {
+        Err(AppError::Transcription(
+            "The prompt and audio fill the model context window".into(),
+        ))
+    } else {
+        Ok(limit)
     }
 }
 
@@ -208,5 +286,48 @@ fn validate_config(config: &MossConfig) -> AppResult<()> {
         Err(AppError::Model(
             "The downloaded model configuration is not the supported MOSS 0.9B architecture".into(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+    #[test]
+    fn distinguishes_normal_generation_stop_from_truncation() {
+        assert!(!generation_was_truncated(&[42, EOS_TOKEN_ID]));
+        assert!(!generation_was_truncated(&[42, PAD_TOKEN_ID]));
+        assert!(generation_was_truncated(&[42, 43]));
+        assert!(generation_was_truncated(&[]));
+    }
+
+    #[test]
+    fn generation_limit_uses_model_default_and_remaining_context() {
+        assert_eq!(
+            resolve_generation_limit(5120, None, 750, 1_000, 131_072).unwrap(),
+            5120
+        );
+        assert_eq!(
+            resolve_generation_limit(5120, Some(800), 750, 1_000, 131_072).unwrap(),
+            800
+        );
+        assert_eq!(
+            resolve_generation_limit(5120, None, 45_000, 40_000, 131_072).unwrap(),
+            65_536
+        );
+        assert_eq!(
+            resolve_generation_limit(5120, None, 45_000, 130_000, 131_072).unwrap(),
+            1072
+        );
+        assert!(resolve_generation_limit(5120, None, 750, 131_072, 131_072).is_err());
+    }
+
+    #[test]
+    fn generation_progress_tracks_audio_sized_output_without_reaching_completion() {
+        assert_eq!(generation_progress_percent(0, 4_688), 3.0);
+        let measured_sample = generation_progress_percent(4_784, 4_688);
+        assert!(measured_sample > 98.0 && measured_sample < 99.0);
+        assert_eq!(generation_progress_percent(10_000, 4_688), 99.0);
     }
 }
