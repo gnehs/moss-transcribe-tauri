@@ -19,12 +19,12 @@ msgid "{0} 個檔案將依序使用固定的 MOSS 模型處理。"
 msgstr "{0} files will be processed sequentially with the fixed MOSS model."
 
 #. placeholder {0}: basename(task.inputPath)
-#: src/hooks/use-transcription-workspace.ts:151
+#: src/hooks/use-transcription-workspace.ts:150
 msgid "{0} 失敗"
 msgstr "{0} failed"
 
 #. placeholder {0}: basename(task.inputPath)
-#: src/hooks/use-transcription-workspace.ts:140
+#: src/hooks/use-transcription-workspace.ts:139
 msgid "{0} 已完成"
 msgstr "{0} completed"
 
@@ -45,7 +45,7 @@ msgstr "{minutes}m {0}s"
 msgid "{totalSeconds} 秒"
 msgstr "{totalSeconds} sec"
 
-#: src/hooks/use-transcription-workspace.ts:250
+#: src/hooks/use-transcription-workspace.ts:249
 msgid "FFmpeg 可用"
 msgstr "FFmpeg is available"
 
@@ -73,15 +73,15 @@ msgstr "No file export"
 msgid "介面語言"
 msgstr "Interface language"
 
-#: src/hooks/use-transcription-workspace.ts:250
+#: src/hooks/use-transcription-workspace.ts:249
 msgid "仍未偵測到 FFmpeg"
 msgstr "FFmpeg is still not detected"
 
-#: src/components/transcription/TaskManagerPanel.tsx:139
+#: src/components/transcription/TaskManagerPanel.tsx:138
 msgid "任務詳情"
 msgstr "Task details"
 
-#: src/components/transcription/TaskManagerPanel.tsx:151
+#: src/components/transcription/TaskManagerPanel.tsx:150
 msgid "任務進度"
 msgstr "Task progress"
 
@@ -90,8 +90,8 @@ msgid "來源資料夾"
 msgstr "Source folder"
 
 #: src/App.tsx:45
-msgid "依序處理每一個轉錄任務。"
-msgstr "Process each transcription task sequentially."
+#~ msgid "依序處理每一個轉錄任務。"
+#~ msgstr "Process each transcription task sequentially."
 
 #: src/components/transcription/TaskManagerPanel.tsx:111
 msgid "保留說話者與時間區段。"
@@ -99,26 +99,26 @@ msgstr "Preserves speakers and time segments."
 
 #. placeholder {0}: task.options.maxNewTokens
 #: src/components/transcription/TaskManagerPanel.tsx:88
-msgid "最多 {0} tokens"
-msgstr "Up to {0} tokens"
+#~ msgid "最多 {0} tokens"
+#~ msgstr "Up to {0} tokens"
 
 #: src/components/transcription/TaskManagerPanel.tsx:114
-msgid "最多 4096"
-msgstr "Up to 4096"
+#~ msgid "最多 4096"
+#~ msgstr "Up to 4096"
 
 #: src/components/transcription/TaskManagerPanel.tsx:114
-msgid "最大新 Token 數"
-msgstr "Maximum new tokens"
+#~ msgid "最大新 Token 數"
+#~ msgstr "Maximum new tokens"
 
 #: src/components/transcription/SettingsPanel.tsx:144
 msgid "刪除"
 msgstr "Delete"
 
-#: src/components/transcription/TaskManagerPanel.tsx:117
+#: src/components/transcription/TaskManagerPanel.tsx:116
 msgid "加入中"
 msgstr "Adding"
 
-#: src/components/transcription/TaskManagerPanel.tsx:117
+#: src/components/transcription/TaskManagerPanel.tsx:116
 msgid "加入任務"
 msgstr "Add tasks"
 
@@ -126,7 +126,7 @@ msgstr "Add tasks"
 msgid "動作"
 msgstr "Actions"
 
-#: src/components/transcription/TaskManagerPanel.tsx:117
+#: src/components/transcription/TaskManagerPanel.tsx:116
 msgid "取消"
 msgstr "Cancel"
 
@@ -168,12 +168,12 @@ msgid "已下載"
 msgstr "Downloaded"
 
 #. placeholder {0}: nextTasks.length
-#: src/hooks/use-transcription-workspace.ts:227
+#: src/hooks/use-transcription-workspace.ts:226
 msgid "已加入 {0} 個任務"
 msgstr "Added {0} tasks"
 
 #. placeholder {0}: formatDuration(elapsedMs)
-#: src/components/transcription/TaskManagerPanel.tsx:148
+#: src/components/transcription/TaskManagerPanel.tsx:147
 msgid "已用 {0}"
 msgstr "Elapsed {0}"
 
@@ -185,13 +185,17 @@ msgstr "Skipped {rejectedCount} unsupported files"
 msgid "建立字幕檔。"
 msgstr "Creates a subtitle file."
 
-#: src/App.tsx:37
+#: src/App.tsx:34
 msgid "把檔案拖到這裡"
 msgstr "Drop files here"
 
 #: src/components/transcription/TaskManagerPanel.tsx:97
-msgid "拖放或選取檔案"
-msgstr "Drop or choose files"
+#~ msgid "拖放或選取檔案"
+#~ msgstr "Drop or choose files"
+
+#: src/components/transcription/TaskManagerPanel.tsx:97
+msgid "拖放檔案至此來建立任務"
+msgstr "Drop files here to create a task"
 
 #: src/components/transcription/TaskManagerPanel.tsx:28
 msgid "排隊中"
@@ -205,27 +209,27 @@ msgstr "Prompt"
 msgid "放開以加入任務"
 msgstr "Release to add tasks"
 
-#: src/App.tsx:38
+#: src/App.tsx:35
 msgid "放開即可建立轉錄任務"
 msgstr "Release to create a transcription task"
 
-#: src/components/transcription/TaskManagerPanel.tsx:177
+#: src/components/transcription/TaskManagerPanel.tsx:176
 msgid "文字"
 msgstr "Text"
 
-#: src/App.tsx:54
+#: src/App.tsx:50
 msgid "新增任務"
 msgstr "Add task"
 
 #: src/components/transcription/TaskManagerPanel.tsx:97
-msgid "新增檔案後會自動排隊。"
-msgstr "Added files are queued automatically."
+#~ msgid "新增檔案後會自動排隊。"
+#~ msgstr "Added files are queued automatically."
 
 #: src/components/transcription/TaskManagerPanel.tsx:106
 msgid "新增轉錄任務"
 msgstr "Add transcription task"
 
-#: src/components/transcription/TaskManagerPanel.tsx:177
+#: src/components/transcription/TaskManagerPanel.tsx:176
 msgid "時間"
 msgstr "Time"
 
@@ -245,9 +249,9 @@ msgstr "FFmpeg not detected"
 msgid "未知錯誤"
 msgstr "Unknown error"
 
+#: src/components/transcription/TaskManagerPanel.tsx:171
 #: src/components/transcription/TaskManagerPanel.tsx:172
 #: src/components/transcription/TaskManagerPanel.tsx:173
-#: src/components/transcription/TaskManagerPanel.tsx:174
 msgid "未輸出"
 msgstr "Not exported"
 
@@ -260,11 +264,11 @@ msgstr "Model"
 msgid "模型下載進度"
 msgstr "Model download progress"
 
-#: src/hooks/use-transcription-workspace.ts:239
+#: src/hooks/use-transcription-workspace.ts:238
 msgid "模型已可使用"
 msgstr "Model is ready"
 
-#: src/hooks/use-transcription-workspace.ts:239
+#: src/hooks/use-transcription-workspace.ts:238
 msgid "模型已重新下載"
 msgstr "Model redownloaded"
 
@@ -280,7 +284,7 @@ msgstr "This app uses one fixed transcription and diarization model."
 msgid "沒有可加入的支援檔案"
 msgstr "No supported files to add"
 
-#: src/App.tsx:50
+#: src/App.tsx:46
 msgid "清除已完成"
 msgstr "Clear completed"
 
@@ -312,7 +316,7 @@ msgstr "Remove"
 msgid "立即套用並記住偏好設定。"
 msgstr "Apply immediately and remember this preference."
 
-#: src/App.tsx:66
+#: src/App.tsx:62
 msgid "管理 MOSS 模型、本機工具與執行環境。"
 msgstr "Manage the MOSS model, local tools, and runtime."
 
@@ -337,8 +341,8 @@ msgstr "{0} files missing"
 msgid "缺少 FFmpeg"
 msgstr "FFmpeg missing"
 
+#: src/App.tsx:57
 #: src/App.tsx:61
-#: src/App.tsx:65
 #: src/components/transcription/TaskManagerPanel.tsx:81
 msgid "設定"
 msgstr "Settings"
@@ -347,7 +351,7 @@ msgstr "Settings"
 msgid "語言"
 msgstr "Language"
 
-#: src/components/transcription/TaskManagerPanel.tsx:177
+#: src/components/transcription/TaskManagerPanel.tsx:176
 msgid "說話者"
 msgstr "Speaker"
 
@@ -387,11 +391,15 @@ msgstr "Progress"
 msgid "選取"
 msgstr "Select"
 
+#: src/components/transcription/TaskManagerPanel.tsx:97
+msgid "選擇檔案"
+msgstr "Choose files"
+
 #: src/components/transcription/SettingsPanel.tsx:141
 msgid "重新下載"
 msgstr "Redownload"
 
-#: src/components/transcription/TaskManagerPanel.tsx:165
+#: src/components/transcription/TaskManagerPanel.tsx:164
 msgid "重新執行"
 msgstr "Run again"
 
@@ -407,7 +415,7 @@ msgstr "Retry"
 msgid "音訊和影片會先由本機工具轉為可處理的格式。"
 msgstr "Audio and video are converted locally before processing."
 
-#: src/components/transcription/TaskManagerPanel.tsx:158
+#: src/components/transcription/TaskManagerPanel.tsx:157
 msgid "音訊長度"
 msgstr "Audio duration"
 

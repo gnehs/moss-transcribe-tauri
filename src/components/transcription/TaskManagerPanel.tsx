@@ -94,7 +94,7 @@ export function TaskManagerPanel({
               ))}</TableBody>
             </Table>
           ) : (
-            <Empty className="task-empty-state"><div className="task-empty-main"><EmptyHeader><EmptyMedia variant="icon"><FileAudioIcon /></EmptyMedia><EmptyTitle><Trans>尚無任務</Trans></EmptyTitle><EmptyDescription><Trans>新增檔案後會自動排隊。</Trans></EmptyDescription></EmptyHeader><EmptyContent><Button onClick={onPickFiles}><ListPlusIcon data-icon="inline-start" />{isDraggingFiles ? <Trans>放開以加入任務</Trans> : <Trans>拖放或選取檔案</Trans>}</Button></EmptyContent></div><p className="task-empty-supported">wav、mp3、m4a、aac、flac、ogg、mp4、mov、mkv、webm</p></Empty>
+            <Empty className="task-empty-state"><div className="task-empty-main"><EmptyHeader><EmptyMedia variant="icon"><FileAudioIcon /></EmptyMedia><EmptyTitle><Trans>尚無任務</Trans></EmptyTitle><EmptyDescription><Trans>拖放檔案至此來建立任務</Trans></EmptyDescription></EmptyHeader><EmptyContent><Button onClick={onPickFiles}><ListPlusIcon data-icon="inline-start" />{isDraggingFiles ? <Trans>放開以加入任務</Trans> : <Trans>選擇檔案</Trans>}</Button></EmptyContent></div><p className="task-empty-supported">wav、mp3、m4a、aac、flac、ogg、mp4、mov、mkv、webm</p></Empty>
           )}
         </ScrollArea>
       </section>
