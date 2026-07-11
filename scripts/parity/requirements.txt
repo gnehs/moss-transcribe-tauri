@@ -1,0 +1,6 @@
+# Development-only reference environment. Do not add these packages to the app.
+# Pinning mlx-audio makes regenerated fixtures attributable to one implementation.
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@64e8416c303fb3b3463dab8eb4ebd78c55a87c1a
+numpy>=2.0,<3
+scipy>=1.13,<2
+soundfile>=0.12,<1

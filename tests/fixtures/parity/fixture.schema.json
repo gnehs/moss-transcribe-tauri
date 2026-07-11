@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MOSS native MLX parity fixture",
+  "type": "object",
+  "required": ["schema_version", "provenance", "input", "tensors_file", "tensors", "comparison", "decode"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "provenance": {
+      "type": "object",
+      "required": ["model_repo", "model_revision", "mlx_audio_revision", "mlx_rs_revision"]
+    },
+    "input": {
+      "type": "object",
+      "required": ["sample_rate", "duration_seconds", "source_basename", "sha256"]
+    },
+    "tensors_file": { "const": "tensors.npz" },
+    "tensors": {
+      "type": "object",
+      "required": [
+        "log_mel",
+        "whisper_encoder",
+        "vq_adaptor",
+        "expanded_input_ids",
+        "fused_embeddings",
+        "first_token_logits",
+        "greedy_token_ids",
+        "final_transcript"
+      ]
+    },
+    "comparison": { "type": "object" },
+    "decode": {
+      "type": "object",
+      "required": [
+        "expanded_input_ids",
+        "greedy_token_ids",
+        "first_token_id",
+        "first_32_greedy_tokens",
+        "final_transcript"
+      ]
+    }
+  }
+}

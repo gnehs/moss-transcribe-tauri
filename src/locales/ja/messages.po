@@ -1,0 +1,420 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-07-11 16:20+0800\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ja\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
+
+#. placeholder {0}: taskDraft.inputPaths.length
+#: src/components/transcription/TaskManagerPanel.tsx:106
+msgid "{0} 個檔案將依序使用固定的 MOSS 模型處理。"
+msgstr "{0} 個のファイルを固定の MOSS モデルで順番に処理します。"
+
+#. placeholder {0}: basename(task.inputPath)
+#: src/hooks/use-transcription-workspace.ts:151
+msgid "{0} 失敗"
+msgstr "{0} が失敗しました"
+
+#. placeholder {0}: basename(task.inputPath)
+#: src/hooks/use-transcription-workspace.ts:140
+msgid "{0} 已完成"
+msgstr "{0} が完了しました"
+
+#: src/lib/format.ts:64
+msgid "{formattedSeconds} 秒"
+msgstr "{formattedSeconds} 秒"
+
+#: src/lib/format.ts:52
+msgid "{hours} 小時 {minutes} 分"
+msgstr "{hours}時間 {minutes}分"
+
+#. placeholder {0}: seconds.toString().padStart(2, "0")
+#: src/lib/format.ts:55
+msgid "{minutes} 分 {0} 秒"
+msgstr "{minutes}分 {0}秒"
+
+#: src/lib/format.ts:45
+msgid "{totalSeconds} 秒"
+msgstr "{totalSeconds} 秒"
+
+#: src/hooks/use-transcription-workspace.ts:250
+msgid "FFmpeg 可用"
+msgstr "FFmpeg は利用可能です"
+
+#: src/components/transcription/SettingsPanel.tsx:184
+msgid "MOSS 在 Apple Silicon 上透過 MLX 與 Metal 執行。"
+msgstr "MOSS は Apple Silicon 上で MLX と Metal を使用して実行されます。"
+
+#: src/components/transcription/SettingsPanel.tsx:115
+msgid "下載中"
+msgstr "ダウンロード中"
+
+#: src/components/transcription/SettingsPanel.tsx:136
+msgid "下載模型"
+msgstr "モデルをダウンロード"
+
+#: src/components/transcription/SettingsPanel.tsx:187
+msgid "不可用"
+msgstr "利用不可"
+
+#: src/components/transcription/TaskManagerPanel.tsx:88
+msgid "不輸出檔案"
+msgstr "ファイルを出力しない"
+
+#: src/components/transcription/SettingsPanel.tsx:81
+msgid "介面語言"
+msgstr "インターフェース言語"
+
+#: src/hooks/use-transcription-workspace.ts:250
+msgid "仍未偵測到 FFmpeg"
+msgstr "FFmpeg はまだ検出されていません"
+
+#: src/components/transcription/TaskManagerPanel.tsx:139
+msgid "任務詳情"
+msgstr "タスク詳細"
+
+#: src/components/transcription/TaskManagerPanel.tsx:151
+msgid "任務進度"
+msgstr "タスクの進捗"
+
+#: src/components/transcription/TaskManagerPanel.tsx:85
+msgid "來源資料夾"
+msgstr "ソースフォルダー"
+
+#: src/App.tsx:45
+msgid "依序處理每一個轉錄任務。"
+msgstr "文字起こしタスクを一つずつ処理します。"
+
+#: src/components/transcription/TaskManagerPanel.tsx:111
+msgid "保留說話者與時間區段。"
+msgstr "話者と時間区間を保持します。"
+
+#. placeholder {0}: task.options.maxNewTokens
+#: src/components/transcription/TaskManagerPanel.tsx:88
+msgid "最多 {0} tokens"
+msgstr "最大 {0} tokens"
+
+#: src/components/transcription/TaskManagerPanel.tsx:114
+msgid "最多 4096"
+msgstr "最大 4096"
+
+#: src/components/transcription/TaskManagerPanel.tsx:114
+msgid "最大新 Token 數"
+msgstr "新規 Token の最大数"
+
+#: src/components/transcription/SettingsPanel.tsx:144
+msgid "刪除"
+msgstr "削除"
+
+#: src/components/transcription/TaskManagerPanel.tsx:117
+msgid "加入中"
+msgstr "追加中"
+
+#: src/components/transcription/TaskManagerPanel.tsx:117
+msgid "加入任務"
+msgstr "タスクを追加"
+
+#: src/components/transcription/TaskManagerPanel.tsx:81
+msgid "動作"
+msgstr "操作"
+
+#: src/components/transcription/TaskManagerPanel.tsx:117
+msgid "取消"
+msgstr "キャンセル"
+
+#: src/components/transcription/SettingsPanel.tsx:166
+#: src/components/transcription/SettingsPanel.tsx:187
+msgid "可用"
+msgstr "利用可能"
+
+#: src/components/transcription/TaskManagerPanel.tsx:108
+msgid "固定"
+msgstr "固定"
+
+#: src/components/transcription/SettingsPanel.tsx:183
+msgid "執行環境"
+msgstr "実行環境"
+
+#: src/components/transcription/TaskManagerPanel.tsx:34
+msgid "失敗"
+msgstr "失敗"
+
+#: src/components/transcription/TaskManagerPanel.tsx:33
+msgid "完成"
+msgstr "完了"
+
+#: src/components/transcription/SettingsPanel.tsx:112
+msgid "尚未下載"
+msgstr "未ダウンロード"
+
+#: src/components/transcription/TaskManagerPanel.tsx:97
+msgid "尚無任務"
+msgstr "タスクはありません"
+
+#: src/components/transcription/SettingsPanel.tsx:155
+msgid "工具狀態"
+msgstr "ツールの状態"
+
+#: src/components/transcription/SettingsPanel.tsx:115
+msgid "已下載"
+msgstr "ダウンロード済み"
+
+#. placeholder {0}: nextTasks.length
+#: src/hooks/use-transcription-workspace.ts:227
+msgid "已加入 {0} 個任務"
+msgstr "{0} 個のタスクを追加しました"
+
+#. placeholder {0}: formatDuration(elapsedMs)
+#: src/components/transcription/TaskManagerPanel.tsx:148
+msgid "已用 {0}"
+msgstr "経過 {0}"
+
+#: src/hooks/use-transcription-workspace.ts:99
+msgid "已略過 {rejectedCount} 個不支援的檔案"
+msgstr "サポートされていないファイルを {rejectedCount} 個スキップしました"
+
+#: src/components/transcription/TaskManagerPanel.tsx:112
+msgid "建立字幕檔。"
+msgstr "字幕ファイルを作成します。"
+
+#: src/App.tsx:37
+msgid "把檔案拖到這裡"
+msgstr "ファイルをここにドロップ"
+
+#: src/components/transcription/TaskManagerPanel.tsx:97
+msgid "拖放或選取檔案"
+msgstr "ファイルをドロップまたは選択"
+
+#: src/components/transcription/TaskManagerPanel.tsx:28
+msgid "排隊中"
+msgstr "待機中"
+
+#: src/components/transcription/TaskManagerPanel.tsx:113
+msgid "提示詞"
+msgstr "プロンプト"
+
+#: src/components/transcription/TaskManagerPanel.tsx:97
+msgid "放開以加入任務"
+msgstr "離してタスクに追加"
+
+#: src/App.tsx:38
+msgid "放開即可建立轉錄任務"
+msgstr "離すと文字起こしタスクを作成"
+
+#: src/components/transcription/TaskManagerPanel.tsx:177
+msgid "文字"
+msgstr "テキスト"
+
+#: src/App.tsx:54
+msgid "新增任務"
+msgstr "タスクを追加"
+
+#: src/components/transcription/TaskManagerPanel.tsx:97
+msgid "新增檔案後會自動排隊。"
+msgstr "追加したファイルは自動的にキューへ入ります。"
+
+#: src/components/transcription/TaskManagerPanel.tsx:106
+msgid "新增轉錄任務"
+msgstr "文字起こしタスクを追加"
+
+#: src/components/transcription/TaskManagerPanel.tsx:177
+msgid "時間"
+msgstr "時間"
+
+#: src/components/transcription/SettingsPanel.tsx:115
+msgid "未下載"
+msgstr "未ダウンロード"
+
+#: src/components/transcription/SettingsPanel.tsx:189
+msgid "未偵測到"
+msgstr "検出されていません"
+
+#: src/components/transcription/SettingsPanel.tsx:162
+msgid "未偵測到 FFmpeg"
+msgstr "FFmpeg が検出されていません"
+
+#: src/lib/format.ts:75
+msgid "未知錯誤"
+msgstr "不明なエラー"
+
+#: src/components/transcription/TaskManagerPanel.tsx:172
+#: src/components/transcription/TaskManagerPanel.tsx:173
+#: src/components/transcription/TaskManagerPanel.tsx:174
+msgid "未輸出"
+msgstr "未出力"
+
+#: src/components/transcription/SettingsPanel.tsx:106
+#: src/components/transcription/TaskManagerPanel.tsx:108
+msgid "模型"
+msgstr "モデル"
+
+#: src/components/transcription/SettingsPanel.tsx:126
+msgid "模型下載進度"
+msgstr "モデルのダウンロード進捗"
+
+#: src/hooks/use-transcription-workspace.ts:239
+msgid "模型已可使用"
+msgstr "モデルを利用できます"
+
+#: src/hooks/use-transcription-workspace.ts:239
+msgid "模型已重新下載"
+msgstr "モデルを再ダウンロードしました"
+
+#: src/components/transcription/TaskManagerPanel.tsx:81
+msgid "檔案"
+msgstr "ファイル"
+
+#: src/components/transcription/SettingsPanel.tsx:107
+msgid "此 app 固定使用一個說話者分離轉錄模型。"
+msgstr "このアプリは固定の文字起こし・話者分離モデルを使用します。"
+
+#: src/hooks/use-transcription-workspace.ts:96
+msgid "沒有可加入的支援檔案"
+msgstr "追加できる対応ファイルがありません"
+
+#: src/App.tsx:50
+msgid "清除已完成"
+msgstr "完了済みを消去"
+
+#: src/App.tsx:49
+#~ msgid "清除已結束"
+#~ msgstr "完了済みを消去"
+
+#: src/components/transcription/TaskManagerPanel.tsx:29
+msgid "準備中"
+msgstr "準備中"
+
+#: src/components/transcription/TaskManagerPanel.tsx:81
+msgid "狀態"
+msgstr "ステータス"
+
+#: src/components/transcription/TaskManagerPanel.tsx:32
+msgid "產生中"
+msgstr "生成中"
+
+#: src/components/transcription/TaskManagerPanel.tsx:113
+msgid "留空使用 MOSS 預設提示詞；也可加入專有名詞"
+msgstr "空欄の場合は MOSS の既定プロンプトを使用します。固有名詞も追加できます"
+
+#: src/components/transcription/TaskManagerPanel.tsx:91
+msgid "移除"
+msgstr "削除"
+
+#: src/components/transcription/SettingsPanel.tsx:82
+msgid "立即套用並記住偏好設定。"
+msgstr "すぐに適用し、設定を保存します。"
+
+#: src/App.tsx:66
+msgid "管理 MOSS 模型、本機工具與執行環境。"
+msgstr "MOSS モデル、ローカルツール、実行環境を管理します。"
+
+#: src/components/transcription/TaskManagerPanel.tsx:110
+msgid "純文字轉錄稿。"
+msgstr "プレーンテキストの文字起こし。"
+
+#: src/components/transcription/TaskManagerPanel.tsx:30
+msgid "編碼中"
+msgstr "エンコード中"
+
+#: src/components/transcription/SettingsPanel.tsx:166
+msgid "缺少"
+msgstr "不足"
+
+#. placeholder {0}: model.missingFiles.length
+#: src/components/transcription/SettingsPanel.tsx:122
+msgid "缺少 {0} 個檔案"
+msgstr "{0} 個のファイルが不足"
+
+#: src/components/app/AppToolbar.tsx:48
+msgid "缺少 FFmpeg"
+msgstr "FFmpeg がありません"
+
+#: src/App.tsx:61
+#: src/App.tsx:65
+#: src/components/transcription/TaskManagerPanel.tsx:81
+msgid "設定"
+msgstr "設定"
+
+#: src/components/transcription/SettingsPanel.tsx:86
+msgid "語言"
+msgstr "言語"
+
+#: src/components/transcription/TaskManagerPanel.tsx:177
+msgid "說話者"
+msgstr "話者"
+
+#: src/components/transcription/SettingsPanel.tsx:172
+msgid "請安裝 FFmpeg 後重新檢查。"
+msgstr "FFmpeg をインストールしてから再確認してください。"
+
+#: src/components/transcription/SettingsPanel.tsx:99
+msgid "變更後會立即套用。"
+msgstr "変更はすぐに適用されます。"
+
+#: src/components/transcription/TaskManagerPanel.tsx:111
+msgid "輸出 JSON"
+msgstr "JSON を出力"
+
+#: src/components/transcription/TaskManagerPanel.tsx:112
+msgid "輸出 SRT"
+msgstr "SRT を出力"
+
+#: src/components/transcription/TaskManagerPanel.tsx:110
+msgid "輸出 TXT"
+msgstr "TXT を出力"
+
+#: src/components/transcription/TaskManagerPanel.tsx:109
+msgid "輸出資料夾"
+msgstr "出力フォルダー"
+
+#: src/components/transcription/TaskManagerPanel.tsx:76
+msgid "轉錄任務"
+msgstr "文字起こしタスク"
+
+#: src/components/transcription/TaskManagerPanel.tsx:81
+msgid "進度"
+msgstr "進捗"
+
+#: src/components/transcription/TaskManagerPanel.tsx:109
+msgid "選取"
+msgstr "選択"
+
+#: src/components/transcription/SettingsPanel.tsx:141
+msgid "重新下載"
+msgstr "再ダウンロード"
+
+#: src/components/transcription/TaskManagerPanel.tsx:165
+msgid "重新執行"
+msgstr "再実行"
+
+#: src/components/transcription/SettingsPanel.tsx:175
+msgid "重新檢查"
+msgstr "再確認"
+
+#: src/components/transcription/TaskManagerPanel.tsx:90
+msgid "重試"
+msgstr "再試行"
+
+#: src/components/transcription/SettingsPanel.tsx:156
+msgid "音訊和影片會先由本機工具轉為可處理的格式。"
+msgstr "音声と動画は処理前にローカルで変換されます。"
+
+#: src/components/transcription/TaskManagerPanel.tsx:158
+msgid "音訊長度"
+msgstr "音声の長さ"
+
+#: src/components/transcription/TaskManagerPanel.tsx:31
+msgid "預填中"
+msgstr "プリフィル中"
+
+#: src/components/transcription/TaskManagerPanel.tsx:109
+msgid "預設使用來源檔案所在資料夾"
+msgstr "デフォルトは元ファイルのフォルダー"

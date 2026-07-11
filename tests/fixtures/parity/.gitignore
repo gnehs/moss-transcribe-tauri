@@ -1,0 +1,6 @@
+# Fixtures are generated from local models and local >30 second audio only.
+generated/
+*.npz
+*.wav
+*.flac
+*.mp3
