@@ -4,7 +4,7 @@ import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
 import {
-  Clock3Icon, FileAudioIcon, FolderOpenIcon, ListPlusIcon, RotateCcwIcon, Trash2Icon, TriangleAlertIcon,
+  Clock3Icon, FileAudioIcon, FolderOpenIcon, HourglassIcon, ListPlusIcon, RotateCcwIcon, Trash2Icon, TriangleAlertIcon,
 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -62,6 +62,28 @@ function taskStageElapsedMs(task: TranscriptionTask, stage: TimedTaskStage, now:
   return completed > 0 ? completed : null;
 }
 
+function taskEtaMs(task: TranscriptionTask, now: number) {
+  if (task.status !== "generating") return null;
+  const generatedTokens = task.progress?.generatedTokens ?? 0;
+  const estimatedTokens = task.progress?.estimatedGeneratedTokens ?? 0;
+  const generatingElapsedMs = taskStageElapsedMs(task, "generating", now) ?? 0;
+  if (generatedTokens < 64 || estimatedTokens <= 0 || generatingElapsedMs < 2_000) return null;
+
+  const tokensPerMs = generatedTokens / generatingElapsedMs;
+  return Math.max(0, estimatedTokens - generatedTokens) / tokensPerMs;
+}
+
+function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
+  if (!["preparing", "encoding", "prefilling", "generating"].includes(task.status)) return null;
+  const etaMs = taskEtaMs(task, now);
+  return (
+    <Badge variant="outline">
+      <HourglassIcon data-icon="inline-start" />
+      {etaMs == null ? <Trans>ETA 計算中</Trans> : <>ETA {formatElapsedClock(etaMs)}</>}
+    </Badge>
+  );
+}
+
 export function TaskManagerPanel({
   tasks, taskDraft, isTaskDialogOpen, isDraggingFiles, isConfirmingTasks,
   selectedTaskId, onPickFiles, onPickOutputDir, onTaskDraftChange,
@@ -111,8 +133,9 @@ export function TaskManagerPanel({
                       <ProgressLabel className="min-w-0 truncate">{task.message ?? <StatusLabel status={task.status} />}</ProgressLabel>
                       <ProgressValue className="shrink-0">{() => `${task.percent.toFixed(0)}%`}</ProgressValue>
                     </Progress>
-                    <div className="mt-1.5 flex justify-end">
+                    <div className="mt-1.5 flex flex-wrap justify-end gap-1">
                       <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatElapsedClock(taskElapsedMs(task, now))}</Trans></Badge>
+                      <TaskEtaBadge task={task} now={now} />
                     </div>
                   </TableCell>
                   <TableCell className="task-options-cell"><div className="truncate">{Object.entries(task.options.outputs).filter(([, enabled]) => enabled).map(([format]) => format.toUpperCase()).join(" · ") || <Trans>不輸出檔案</Trans>}</div></TableCell>
@@ -175,7 +198,10 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
             <div className="task-result-stack">
               <div className="flex items-center justify-between gap-2">
                 <Badge variant={result?.truncated ? "destructive" : statusVariant(task.status)}>{result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge>
-                <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatDuration(elapsedMs)}</Trans></Badge>
+                <div className="flex flex-wrap justify-end gap-1">
+                  <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatDuration(elapsedMs)}</Trans></Badge>
+                  <TaskEtaBadge task={task} now={now} />
+                </div>
               </div>
               <div className="flex flex-col gap-1">
                 <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />

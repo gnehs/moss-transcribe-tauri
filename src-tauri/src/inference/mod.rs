@@ -130,6 +130,7 @@ impl MossTranscriber {
             audio_duration_ms: Some((pcm.len() as f64 / 16_000.0 * 1000.0) as u64),
             prompt_tokens: 0,
             generated_tokens: 0,
+            estimated_generated_tokens: 0,
         });
         let mel_chunks = chunks
             .iter()
@@ -140,6 +141,7 @@ impl MossTranscriber {
             .map(|chunk| chunk.audio_token_length)
             .collect::<Vec<_>>();
         let audio_tokens = chunks.iter().map(|chunk| chunk.audio_token_length).sum();
+        let estimated_generated_tokens = estimated_output_tokens(audio_tokens);
         let input_ids = self
             .processor
             .expanded_input_ids(audio_tokens, options.prompt.as_deref())?;
@@ -191,6 +193,7 @@ impl MossTranscriber {
                         audio_duration_ms: Some((pcm.len() as f64 / 16_000.0 * 1000.0) as u64),
                         prompt_tokens,
                         generated_tokens,
+                        estimated_generated_tokens,
                     });
                 },
             )?;
@@ -232,11 +235,15 @@ fn generation_progress_percent(generated_tokens: usize, audio_tokens: usize) -> 
     // MOSS emits roughly one transcript token per merged audio placeholder on
     // the first measured long-form sample. A small overhead allowance keeps
     // the bar below 99% until timestamps, speaker tags, and EOS are emitted.
-    let estimated_output_tokens = audio_tokens
-        .saturating_add(ESTIMATED_OUTPUT_TOKEN_OVERHEAD)
-        .max(1);
+    let estimated_output_tokens = estimated_output_tokens(audio_tokens);
     let ratio = generated_tokens as f64 / estimated_output_tokens as f64;
     3.0 + ratio.min(1.0) * 96.0
+}
+
+fn estimated_output_tokens(audio_tokens: usize) -> usize {
+    audio_tokens
+        .saturating_add(ESTIMATED_OUTPUT_TOKEN_OVERHEAD)
+        .max(1)
 }
 
 fn resolve_generation_limit(
@@ -325,6 +332,7 @@ mod tests {
 
     #[test]
     fn generation_progress_tracks_audio_sized_output_without_reaching_completion() {
+        assert_eq!(estimated_output_tokens(4_688), 4_816);
         assert_eq!(generation_progress_percent(0, 4_688), 3.0);
         let measured_sample = generation_progress_percent(4_784, 4_688);
         assert!(measured_sample > 98.0 && measured_sample < 99.0);

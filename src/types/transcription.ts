@@ -78,6 +78,7 @@ export type TranscriptionProgress = {
   audioDurationMs: number | null;
   promptTokens: number;
   generatedTokens: number;
+  estimatedGeneratedTokens: number;
 };
 
 export type DownloadProgress = {

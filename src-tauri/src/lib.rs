@@ -140,6 +140,7 @@ fn run_transcription(
                 audio_duration_ms: duration,
                 prompt_tokens,
                 generated_tokens,
+                estimated_generated_tokens: 0,
             },
         );
     };

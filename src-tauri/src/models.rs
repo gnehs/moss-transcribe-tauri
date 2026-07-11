@@ -88,6 +88,7 @@ pub struct ProgressEvent {
     pub audio_duration_ms: Option<u64>,
     pub prompt_tokens: usize,
     pub generated_tokens: usize,
+    pub estimated_generated_tokens: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
