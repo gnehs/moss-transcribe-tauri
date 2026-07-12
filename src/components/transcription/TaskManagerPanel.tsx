@@ -73,6 +73,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CircleIndicator } from "@/components/transcription/CircleIndicator";
 import {
   basename,
   formatDuration,
@@ -228,7 +229,7 @@ function TaskDetailStat({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-w-0 items-start gap-2.5 py-3.5 leading-none", className)}>
+    <div className={cn("flex min-w-0 items-start gap-2.5 py-2 leading-none", className)}>
       <div
         className="grid size-[30px] shrink-0 place-items-center rounded-md bg-foreground/10 text-foreground [&_svg]:size-4"
         aria-hidden="true"
@@ -678,7 +679,6 @@ function TaskDetailSheet({
   onRetryTask: (taskId: string) => void;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { i18n } = useLingui();
   const result = task?.result;
   const transcript = result ?? task?.stream;
   const [activeTab, setActiveTab] = useState("statistics");
@@ -686,6 +686,7 @@ function TaskDetailSheet({
   const elapsedMs = task ? taskElapsedMs(task, now) : null;
   const audioDurationMs =
     task?.progress?.audioDurationMs ?? (result ? result.audioDurationMs : null);
+  const taskPercent = task ? Math.max(0, Math.min(100, task.percent)) : 0;
   const outputFormats = task
     ? Object.entries(task.options.outputs)
         .filter(([, enabled]) => enabled)
@@ -726,17 +727,36 @@ function TaskDetailSheet({
                   </SheetTitle>
                 </div>
               </div>
-              <SheetDescription className="flex min-w-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
-                <span className="min-w-0">
-                  {formatDuration(audioDurationMs)}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span className="min-w-0 truncate">
-                  {outputFormats.length ? (
-                    outputFormats.join(" · ")
-                  ) : (
-                    <Trans>不輸出檔案</Trans>
-                  )}
+              <SheetDescription className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground">
+                <span className="flex min-w-0 items-center gap-2">
+                  <CircleIndicator
+                    progress={taskPercent}
+                    size={20}
+                    thickness={10}
+                    color="var(--foreground)"
+                    trackColor="var(--ring)"
+                  />
+                  <span className="shrink-0 tabular-nums font-medium text-foreground">
+                    {taskPercent.toFixed(0)}%
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="shrink-0 text-foreground">
+                    {result?.truncated ? (
+                      <Trans>結果不完整</Trans>
+                    ) : (
+                      <StatusLabel status={task.status} />
+                    )}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="min-w-0 shrink-0">
+                    {formatDuration(audioDurationMs)}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="min-w-0 truncate">
+                    {outputFormats.length
+                      ? outputFormats.join(" · ")
+                      : <Trans>不輸出檔案</Trans>}
+                  </span>
                 </span>
               </SheetDescription>
             </SheetHeader>
@@ -766,44 +786,11 @@ function TaskDetailSheet({
               viewportRef={scrollViewportRef}
             >
               <div className="flex min-w-0 flex-col">
-                <div className="flex min-w-0 flex-col gap-3 pb-4">
-                  <div className="flex min-w-0 items-center justify-between gap-3">
-                    <TaskDetailSectionTitle>
-                      <Trans>任務進度</Trans>
-                    </TaskDetailSectionTitle>
-                    <span className="text-[1.375rem] font-semibold leading-none tabular-nums">
-                      {task.percent.toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <Progress
-                      className="gap-2 [&_[data-slot=progress-indicator]]:bg-foreground [&_[data-slot=progress-track]]:h-2 [&_[data-slot=progress-track]]:bg-muted/70"
-                      value={task.percent}
-                      aria-label={i18n._(msg`任務進度`)}
-                    />
-                    <div className="flex min-w-0 items-center gap-2.5 text-xs text-muted-foreground">
-                      <Badge
-                        variant={
-                          result?.truncated
-                            ? "destructive"
-                            : statusVariant(task.status)
-                        }
-                      >
-                        {result?.truncated ? (
-                          <Trans>結果不完整</Trans>
-                        ) : (
-                          <StatusLabel status={task.status} />
-                        )}
-                      </Badge>
-                      <span className="truncate">{task.message ?? ""}</span>
-                    </div>
-                  </div>
-                </div>
-                <TabsContent
-                  value="statistics"
-                  className="flex min-w-0 flex-col gap-5 text-sm outline-none"
-                >
-                  <div className="grid grid-cols-2 border-y max-[720px]:grid-cols-1">
+              <TabsContent
+                value="statistics"
+                className="flex min-w-0 flex-col gap-5 text-sm outline-none"
+              >
+                  <div className="grid grid-cols-2 max-[720px]:grid-cols-1">
                     <TaskDetailStat
                       icon={TimerIcon}
                       label={<Trans>任務耗時</Trans>}
@@ -811,7 +798,7 @@ function TaskDetailSheet({
                       detail={<TaskEtaBadge task={task} now={now} />}
                     />
                     <TaskDetailStat
-                      className="border-l pl-4 max-[720px]:border-l-0 max-[720px]:border-t max-[720px]:pl-0"
+
                       icon={AudioLinesIcon}
                       label={<Trans>音訊長度</Trans>}
                       value={
@@ -821,7 +808,7 @@ function TaskDetailSheet({
                       }
                     />
                     <TaskDetailStat
-                      className="border-t"
+
                       icon={HashIcon}
                       label="Prompt tokens"
                       value={
@@ -829,7 +816,7 @@ function TaskDetailSheet({
                       }
                     />
                     <TaskDetailStat
-                      className="border-l border-t pl-4 max-[720px]:border-l-0 max-[720px]:pl-0"
+
                       icon={HashIcon}
                       label="Generated tokens"
                       value={
