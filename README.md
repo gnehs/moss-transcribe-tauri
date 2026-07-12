@@ -1,52 +1,92 @@
 # MOSS Transcribe Studio
 
-Apple Silicon macOS 專用的原生長音訊轉錄工具。App 透過 Rust、`mlx-rs`
-與 Metal 執行 `OpenMOSS-Team/MOSS-Transcribe-Diarize`，支援時間戳、說話者
-辨識，以及 TXT、JSON、SRT 匯出；正式執行不需要 Python 或 PyTorch。
+English | [繁體中文](README.zh.md)
 
-## 系統需求
+MOSS Transcribe Studio is a native long-form audio transcription app for Apple
+Silicon Macs. It runs `OpenMOSS-Team/MOSS-Transcribe-Diarize` with Rust,
+`mlx-rs`, and Metal, supports timestamps and speaker diarization, and exports
+TXT, JSON, and SRT files. Python and PyTorch are not required at runtime.
 
-- Apple Silicon Mac，macOS 14 或更新版本
+## Install from a release
+
+1. Open the [latest GitHub release](https://github.com/gnehs/moss-transcribe-tauri/releases/latest).
+2. Under **Assets**, download the `.dmg` file. Do not download the automatically
+   generated source-code ZIP or tar.gz archives.
+3. Open the DMG and drag MOSS Transcribe Studio into Applications.
+4. Releases are currently unsigned. If macOS blocks the first launch, run:
+
+```sh
+xattr -cr "/Applications/MOSS Transcribe Studio.app"
+```
+
+## Download the model
+
+The model is not bundled with the release DMG. Before your first transcription:
+
+1. Open **Settings** in the app.
+2. Find the **Model** section and select **Download Model**.
+3. Wait for `MOSS-Transcribe-Diarize 0.9B` to finish downloading (approximately
+   1.83 GB).
+
+Creating your first transcription task also starts the download automatically if
+the model is missing.
+
+The app downloads a pinned revision of
+[`OpenMOSS-Team/MOSS-Transcribe-Diarize`](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize)
+to the local Application Support directory. An internet connection is required
+for this download. Afterward, transcription and export are processed locally.
+On macOS, the default model location is
+`~/Library/Application Support/MOSS Transcribe Studio/models/moss-transcribe-diarize`.
+
+## Requirements
+
+- An Apple Silicon Mac running macOS 14 or later
+- FFmpeg (the app checks Homebrew, MacPorts, and `PATH` by default)
+- An internet connection for the initial model download
+
+The following are additionally required for development:
+
 - Xcode Command Line Tools
 - Rust toolchain
 - pnpm
-- FFmpeg（預設偵測 Homebrew、MacPorts、`PATH`）
 
-## 開發
+## Development
 
 ```sh
 pnpm install
 pnpm tauri:dev
 ```
 
-前端 production build：
+Build the frontend for production:
 
 ```sh
 pnpm build
 ```
 
-建立 `.app`：
+Build the macOS app:
 
 ```sh
 pnpm tauri build
 ```
 
-模型會由 App 固定從
-`OpenMOSS-Team/MOSS-Transcribe-Diarize` 的 pinned revision 下載到 App
-Support 目錄；權重、PCM、embedding 與 logits 不會透過 Tauri IPC 傳到前端。
+Model weights, PCM data, embeddings, and logits are never sent to the frontend
+over Tauri IPC.
 
-## 推論與測試
+## Inference and tests
 
-原生推論位於 `src-tauri/src/inference/`，包含 Whisper log-Mel、Whisper
-Medium encoder、4x time merge、VQAdaptor、audio embedding injection、Qwen3
-KV cache、4096-token chunked prefill 與 greedy decoding。
+The native inference implementation lives in `src-tauri/src/inference/`. It
+includes Whisper log-Mel processing, a Whisper Medium encoder, 4x time merge,
+VQAdaptor, audio embedding injection, a Qwen3 KV cache, 4,096-token chunked
+prefill, and greedy decoding.
 
 ```sh
 cd src-tauri
 cargo test
 ```
 
-真模型的端對端與 Python `mlx-audio` parity 測試是開發用的 opt-in gate，
-需要已下載的 pinned 模型與同一段超過 30 秒的 mono 16 kHz PCM16 WAV；詳細
-步驟見 [`scripts/parity/README.md`](scripts/parity/README.md)。Python 套件只存在
-於該開發驗證環境，不屬於 App 依賴。
+End-to-end tests with the real model and Python `mlx-audio` parity tests are
+opt-in development gates. They require the downloaded pinned model and the same
+mono 16 kHz PCM16 WAV file longer than 30 seconds. See
+[`scripts/parity/README.md`](scripts/parity/README.md) for instructions. Python
+packages are only part of that development verification environment and are not
+app dependencies.
