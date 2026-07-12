@@ -1,10 +1,11 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useEffect, useState } from "react";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
 import {
-  Clock3Icon, FileAudioIcon, FolderOpenIcon, HourglassIcon, ListPlusIcon, RotateCcwIcon, Trash2Icon, TriangleAlertIcon,
+  ActivityIcon, AudioLinesIcon, Clock3Icon, FileAudioIcon, FileOutputIcon, FolderOpenIcon, HashIcon, HourglassIcon,
+  ListPlusIcon, RotateCcwIcon, TimerIcon, Trash2Icon, TriangleAlertIcon, type LucideIcon,
 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -73,22 +74,6 @@ function taskEtaMs(task: TranscriptionTask, now: number) {
   return Math.max(0, estimatedTokens - generatedTokens) / tokensPerMs;
 }
 
-function formatSrtTimestamp(seconds: number) {
-  const totalMs = Math.round(Math.max(0, seconds) * 1000);
-  const hours = Math.floor(totalMs / 3_600_000);
-  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
-  const remainingSeconds = Math.floor((totalMs % 60_000) / 1_000);
-  const milliseconds = totalMs % 1_000;
-  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")},${milliseconds.toString().padStart(3, "0")}`;
-}
-
-function renderSrtPreview(task: TranscriptionTask) {
-  const segments = task.result?.segments ?? [];
-  return segments
-    .map((segment, index) => `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(segment.end)}\n[${segment.speaker}] ${segment.text}\n`)
-    .join("\n");
-}
-
 function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
   if (!["preparing", "encoding", "prefilling", "generating"].includes(task.status)) return null;
   const etaMs = taskEtaMs(task, now);
@@ -97,6 +82,24 @@ function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
       <HourglassIcon data-icon="inline-start" className="size-4" />
       {etaMs == null ? <Trans>ETA 計算中</Trans> : <>ETA {formatElapsedClock(etaMs)}</>}
     </>
+  );
+}
+
+function TaskDetailStat({ icon: Icon, label, value, detail }: {
+  icon: LucideIcon;
+  label: ReactNode;
+  value: ReactNode;
+  detail?: ReactNode;
+}) {
+  return (
+    <div className="task-detail-stat">
+      <div className="task-detail-stat-icon" aria-hidden="true"><Icon /></div>
+      <div className="task-detail-stat-body">
+        <div className="task-detail-stat-label">{label}</div>
+        <div className="task-detail-stat-value">{value}</div>
+        {detail ? <div className="task-detail-stat-detail">{detail}</div> : null}
+      </div>
+    </div>
   );
 }
 
@@ -202,45 +205,58 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
   const result = task?.result;
   const elapsedMs = task ? taskElapsedMs(task, now) : null;
   const audioDurationMs = task?.progress?.audioDurationMs ?? (result ? result.audioDurationMs : null);
-  const hasSrtOutput = Boolean(task?.options.outputs.srt || result?.outputs.srtPath);
+  const outputFormats = task ? Object.entries(task.options.outputs).filter(([, enabled]) => enabled).map(([format]) => format.toUpperCase()) : [];
 
   return (
     <Sheet open={Boolean(task)} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="gap-0 data-[side=right]:w-[min(720px,100vw)] data-[side=right]:sm:max-w-[min(720px,100vw)]">
-        <SheetHeader className="pr-12">
-          <SheetTitle><Trans>任務詳情</Trans></SheetTitle>
-          <SheetDescription className="truncate">{task?.fileName}</SheetDescription>
-        </SheetHeader>
-        <Separator />
+      <SheetContent side="right" className="task-detail-sheet gap-0 data-[side=right]:w-[min(720px,100vw)] data-[side=right]:sm:max-w-[min(720px,100vw)]">
         {task ? (
-          <ScrollArea className="task-detail-content" viewportClassName="scroll-fade">
-            <div className="task-detail-stack">
+          <Tabs key={task.id} defaultValue="statistics" className="task-detail-tabs task-detail-tabs-shell">
+            <SheetHeader className="task-detail-header pr-12">
+              <div className="task-detail-title-row">
+                <div className="min-w-0">
+                  <div className="task-detail-kicker"><Trans>任務詳情</Trans></div>
+                  <SheetTitle className="task-detail-file-title truncate">{task.fileName}</SheetTitle>
+                </div>
+              </div>
+              <SheetDescription className="task-detail-file-meta">
+                <span>{formatDuration(audioDurationMs)}</span>
+                <span aria-hidden="true">·</span>
+                <span>{outputFormats.length ? outputFormats.join(" · ") : <Trans>不輸出檔案</Trans>}</span>
+              </SheetDescription>
+            </SheetHeader>
+            <div className="task-detail-header-tabs">
+              <TabsList variant="line" className="task-detail-tabs-list">
+                <TabsTrigger value="statistics"><Trans>統計資訊</Trans></TabsTrigger>
+                <TabsTrigger value="transcript"><Trans>逐字稿</Trans></TabsTrigger>
+              </TabsList>
+            </div>
+            <Separator />
+            <ScrollArea className="task-detail-content" viewportClassName="scroll-fade">
+              <div className="task-detail-stack">
               <div className="task-detail-overview">
-                <Badge variant={result?.truncated ? "destructive" : statusVariant(task.status)}>{result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge>
+                <div className="task-detail-progress-heading">
+                  <div className="task-detail-section-title"><Trans>任務進度</Trans></div>
+                  <span className="task-detail-progress-percent">{task.percent.toFixed(0)}%</span>
+                </div>
                 <div className="task-detail-overview-progress">
-                  <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
-                  <div className="flex justify-between gap-3 text-xs text-muted-foreground">
-                    <span>{task.percent.toFixed(0)}%</span>
+                  <Progress className="task-detail-progress-bar" value={task.percent} aria-label={i18n._(msg`任務進度`)} />
+                  <div className="task-detail-progress-foot">
+                    <Badge variant={result?.truncated ? "destructive" : statusVariant(task.status)}>{result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge>
                     <span className="truncate">{task.message ?? ""}</span>
                   </div>
                 </div>
               </div>
-              <Tabs key={task.id} defaultValue="statistics" className="task-detail-tabs">
-                <TabsList variant="line" className="task-detail-tabs-list">
-                  <TabsTrigger value="statistics"><Trans>統計資訊</Trans></TabsTrigger>
-                  <TabsTrigger value="transcript"><Trans>逐字稿</Trans></TabsTrigger>
-                  {hasSrtOutput ? <TabsTrigger value="subtitle"><Trans>字幕</Trans></TabsTrigger> : null}
-                </TabsList>
                 <TabsContent value="statistics" className="task-detail-tab-content">
-                  <div className="task-detail-stat-grid text-sm">
-                    <div><div className="text-muted-foreground"><Trans>任務耗時</Trans></div><div className="flex flex-wrap items-center gap-1 tabular-nums"><Clock3Icon className="size-4" />{formatDuration(elapsedMs)}<TaskEtaBadge task={task} now={now} /></div></div>
-                    <div><div className="text-muted-foreground"><Trans>音訊長度</Trans></div><div>{audioDurationMs == null ? "—" : formatDuration(audioDurationMs)}</div></div>
-                    <div><div className="text-muted-foreground">Prompt tokens</div><div className="font-mono">{task.progress?.promptTokens ?? result?.promptTokens ?? 0}</div></div>
-                    <div><div className="text-muted-foreground">Generated tokens</div><div className="font-mono">{task.progress?.generatedTokens ?? result?.generatedTokens ?? 0}</div></div>
+                  <div className="task-detail-stat-grid">
+                    <TaskDetailStat icon={TimerIcon} label={<Trans>任務耗時</Trans>} value={formatDuration(elapsedMs)} detail={<TaskEtaBadge task={task} now={now} />} />
+                    <TaskDetailStat icon={AudioLinesIcon} label={<Trans>音訊長度</Trans>} value={audioDurationMs == null ? "—" : formatDuration(audioDurationMs)} />
+                    <TaskDetailStat icon={HashIcon} label="Prompt tokens" value={task.progress?.promptTokens ?? result?.promptTokens ?? 0} />
+                    <TaskDetailStat icon={HashIcon} label="Generated tokens" value={task.progress?.generatedTokens ?? result?.generatedTokens ?? 0} />
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="font-medium"><Trans>階段耗時</Trans></div>
-                    <Table>
+                  <div className="task-detail-section">
+                    <div className="task-detail-section-title"><Clock3Icon /><Trans>階段耗時</Trans></div>
+                    <Table className="task-detail-stage-table">
                       <TableHeader><TableRow><TableHead><Trans>階段</Trans></TableHead><TableHead><Trans>進度範圍</Trans></TableHead><TableHead className="text-right"><Trans>耗時</Trans></TableHead></TableRow></TableHeader>
                       <TableBody>{stageProgressRanges.map(({ stage, range }) => (
                         <TableRow key={stage}>
@@ -252,18 +268,23 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
                     </Table>
                   </div>
                   {result ? (
-                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                      <div className="font-medium text-foreground"><Trans>輸出檔案</Trans></div>
-                      <span>TXT: {result.outputs.txtPath ?? <Trans>未輸出</Trans>}</span>
-                      <span>JSON: {result.outputs.jsonPath ?? <Trans>未輸出</Trans>}</span>
-                      <span>SRT: {result.outputs.srtPath ?? <Trans>未輸出</Trans>}</span>
+                    <div className="task-detail-section">
+                      <div className="task-detail-section-title"><FileOutputIcon /><Trans>輸出檔案</Trans></div>
+                      <div className="task-detail-output-list">
+                        {[["TXT", result.outputs.txtPath], ["JSON", result.outputs.jsonPath], ["SRT", result.outputs.srtPath]].map(([format, path]) => (
+                          <div key={format} className="task-detail-output-row">
+                            <span className="task-detail-output-type">{format}</span>
+                            <span className="task-detail-output-path">{path ?? <Trans>未輸出</Trans>}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </TabsContent>
                 <TabsContent value="transcript" className="task-detail-tab-content">
                   {result ? (
                     result.segments.length > 0 ? (
-                      <Table>
+                      <Table className="task-detail-transcript-table">
                         <TableHeader><TableRow><TableHead><Trans>時間</Trans></TableHead><TableHead><Trans>說話者</Trans></TableHead><TableHead><Trans>文字</Trans></TableHead></TableRow></TableHeader>
                         <TableBody>
                           {result.segments.map((segment, index) => (
@@ -278,29 +299,26 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
                     ) : <p className="task-transcript-text">{result.text || <Trans>沒有逐字稿內容</Trans>}</p>
                   ) : <p className="text-sm text-muted-foreground"><Trans>任務完成後會顯示逐字稿。</Trans></p>}
                 </TabsContent>
-                {hasSrtOutput ? (
-                  <TabsContent value="subtitle" className="task-detail-tab-content">
-                    {result ? (
-                      <pre className="srt-preview-text font-mono text-xs">{renderSrtPreview(task) || <Trans>沒有可用的字幕內容</Trans>}</pre>
-                    ) : <p className="text-sm text-muted-foreground"><Trans>任務完成後會顯示字幕。</Trans></p>}
-                  </TabsContent>
-                ) : null}
-              </Tabs>
-              {task.error ? <p className="text-sm text-destructive">{task.error}</p> : null}
-              {result?.truncated ? (
-                <Alert variant="destructive">
-                  <TriangleAlertIcon />
-                  <AlertTitle><Trans>結果不完整</Trans></AlertTitle>
-                  <AlertDescription><Trans>模型已達單次轉錄上限。已保留目前逐字稿；請將較長音訊分段後，重新轉錄遺失的部分。</Trans></AlertDescription>
-                </Alert>
+              {task.error || result?.truncated || task.status === "failed" ? (
+                <div className="task-detail-actions">
+                  {task.error ? <p className="text-sm text-destructive">{task.error}</p> : null}
+                  {result?.truncated ? (
+                    <Alert variant="destructive">
+                      <TriangleAlertIcon />
+                      <AlertTitle><Trans>結果不完整</Trans></AlertTitle>
+                      <AlertDescription><Trans>模型已達單次轉錄上限。已保留目前逐字稿；請將較長音訊分段後，重新轉錄遺失的部分。</Trans></AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {task.status === "failed" || result?.truncated ? (
+                    <Button variant="outline" onClick={() => onRetryTask(task.id)}>
+                      <RotateCcwIcon data-icon="inline-start" /><Trans>重新執行</Trans>
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
-              {task.status === "failed" || result?.truncated ? (
-                <Button variant="outline" onClick={() => onRetryTask(task.id)}>
-                  <RotateCcwIcon data-icon="inline-start" /><Trans>重新執行</Trans>
-                </Button>
-              ) : null}
-            </div>
-          </ScrollArea>
+              </div>
+            </ScrollArea>
+          </Tabs>
         ) : null}
       </SheetContent>
     </Sheet>
