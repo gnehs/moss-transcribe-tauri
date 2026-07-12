@@ -1,4 +1,4 @@
-use std::{fs, sync::Mutex, time::Instant};
+use std::{collections::HashMap, fs, sync::Mutex, time::Instant};
 
 use hf_hub::{
     progress::{DownloadEvent, FileStatus, ProgressEvent as HfProgressEvent, ProgressHandler},
@@ -33,6 +33,12 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
         .ok_or_else(|| AppError::Model("Invalid Hugging Face repository".into()))?;
     let repo = client.model(owner, name);
     let total_files = MODEL_FILES.len();
+    let remote_file_sizes = if force || MODEL_FILES.iter().any(|file| !model_dir.join(file).is_file()) {
+        fetch_remote_file_sizes(&repo)?
+    } else {
+        HashMap::new()
+    };
+
     let file_sizes = MODEL_FILES
         .iter()
         .map(|file| {
@@ -42,12 +48,16 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
                     .map(|metadata| metadata.len())
                     .map_err(AppError::from)
             } else {
-                repo.get_file_metadata()
-                    .filepath((*file).to_string())
-                    .revision(MODEL_REVISION.to_string())
-                    .send()
-                    .map(|metadata| metadata.file_size)
-                    .map_err(|error| AppError::Download(error.to_string()))
+                if let Some(size) = remote_file_sizes.get(*file).copied() {
+                    Ok(size)
+                } else {
+                    repo.get_file_metadata()
+                        .filepath((*file).to_string())
+                        .revision(MODEL_REVISION.to_string())
+                        .send()
+                        .map(|metadata| metadata.file_size)
+                        .map_err(|error| AppError::Download(error.to_string()))
+                }
             }
         })
         .collect::<AppResult<Vec<_>>>()?;
@@ -263,4 +273,23 @@ mod tests {
 
 fn emit(app: &AppHandle, progress: DownloadProgress) {
     let _ = app.emit("model-download-progress", progress);
+}
+
+fn fetch_remote_file_sizes<T: hf_hub::RepoType>(
+    repo: &hf_hub::HFRepositorySync<T>,
+) -> AppResult<HashMap<String, u64>> {
+    let entries = repo
+        .get_paths_info()
+        .paths(MODEL_FILES.iter().map(|path| (*path).to_string()).collect())
+        .revision(MODEL_REVISION.to_string())
+        .send()
+        .map_err(|error| AppError::Download(error.to_string()))?;
+
+    let mut sizes = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        if let hf_hub::repository::RepoTreeEntry::File { path, size, .. } = entry {
+            sizes.insert(path, size);
+        }
+    }
+    Ok(sizes)
 }

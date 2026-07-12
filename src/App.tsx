@@ -129,6 +129,7 @@ function App() {
               tasks={workspace.tasks}
               taskDraft={workspace.taskDraft}
               isConfirmingTasks={workspace.isConfirmingTasks}
+              downloadProgress={workspace.downloadProgress}
               isTaskDialogOpen={workspace.isTaskDialogOpen}
               isDraggingFiles={workspace.isDraggingFiles}
               selectedTaskId={workspace.selectedTaskId}

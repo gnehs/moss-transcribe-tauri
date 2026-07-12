@@ -81,6 +81,7 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
+  DownloadProgress,
   TaskDraft,
   TaskStatus,
   TimedTaskStage,
@@ -227,7 +228,7 @@ function TaskDetailStat({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-w-0 items-start gap-2.5 py-3.5", className)}>
+    <div className={cn("flex min-w-0 items-start gap-2.5 py-3.5 leading-none", className)}>
       <div
         className="grid size-[30px] shrink-0 place-items-center rounded-md bg-foreground/10 text-foreground [&_svg]:size-4"
         aria-hidden="true"
@@ -240,8 +241,8 @@ function TaskDetailStat({
         </div>
         <div
           className={cn(
-            "mt-0.5 text-base font-semibold leading-snug tabular-nums",
-            detail && "flex flex-wrap items-baseline gap-x-2 gap-y-0.5",
+            "text-base font-semibold leading-snug tabular-nums",
+            detail && "flex flex-wrap items-center gap-x-2 gap-y-0.5",
           )}
         >
           {value}
@@ -262,6 +263,7 @@ export function TaskManagerPanel({
   isTaskDialogOpen,
   isDraggingFiles,
   isConfirmingTasks,
+  downloadProgress,
   selectedTaskId,
   onPickFiles,
   onPickOutputDir,
@@ -277,6 +279,7 @@ export function TaskManagerPanel({
   isTaskDialogOpen: boolean;
   isDraggingFiles: boolean;
   isConfirmingTasks: boolean;
+  downloadProgress: DownloadProgress | null;
   selectedTaskId: string | null;
   onPickFiles: () => void;
   onPickOutputDir: () => void;
@@ -292,6 +295,11 @@ export function TaskManagerPanel({
   const [now, setNow] = useState(Date.now());
   const hasActiveTasks = tasks.some((task) =>
     ["preparing", "encoding", "prefilling", "generating"].includes(task.status),
+  );
+  const isModelDownloadPending = isConfirmingTasks;
+  const modelDownloadPercent = Math.max(
+    0,
+    Math.min(100, downloadProgress?.percent ?? 0),
   );
 
   useEffect(() => {
@@ -460,20 +468,57 @@ export function TaskManagerPanel({
         onOpenChange={(open) => !open && onSelectedTaskChange(null)}
       />
 
-      <Dialog open={isTaskDialogOpen} onOpenChange={onTaskDialogOpenChange}>
-        <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-[min(680px,calc(100vw-2rem))]">
-          <DialogHeader>
-            <DialogTitle>
-              <Trans>新增轉錄任務</Trans>
-            </DialogTitle>
-            <DialogDescription>
-              <Trans>
-                {taskDraft.inputPaths.length} 個檔案將依序使用固定的 MOSS
-                模型處理。
-              </Trans>
-            </DialogDescription>
-          </DialogHeader>
-          <div className="scroll-fade flex min-h-0 max-h-[min(620px,calc(100vh-220px))] flex-col gap-4 overflow-x-hidden overflow-y-auto p-1">
+      <Dialog
+        open={isTaskDialogOpen}
+        onOpenChange={(open) => {
+          if (!isModelDownloadPending) onTaskDialogOpenChange(open);
+        }}
+      >
+        <DialogContent
+          className="w-[min(680px,calc(100vw-2rem))] max-w-[min(680px,calc(100vw-2rem))]"
+          showCloseButton={!isModelDownloadPending}
+        >
+          {isModelDownloadPending ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  <Trans>正在下載模型</Trans>
+                </DialogTitle>
+                <DialogDescription>
+                  <Trans>模型下載完成後，任務會自動加入佇列。</Trans>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-3 py-2">
+                <Progress
+                  value={modelDownloadPercent}
+                  aria-label={i18n._(msg`模型下載進度`)}
+                />
+                <div className="flex min-w-0 items-center justify-between gap-4 text-sm text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    {downloadProgress?.currentFile ?? (
+                      <Trans>正在準備下載</Trans>
+                    )}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {modelDownloadPercent.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  <Trans>新增轉錄任務</Trans>
+                </DialogTitle>
+                <DialogDescription>
+                  <Trans>
+                    {taskDraft.inputPaths.length} 個檔案將依序使用固定的 MOSS
+                    模型處理。
+                  </Trans>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="scroll-fade flex min-h-0 max-h-[min(620px,calc(100vh-220px))] flex-col gap-4 overflow-x-hidden overflow-y-auto p-1">
             <FieldGroup>
               <Field>
                 <FieldLabel>
@@ -594,26 +639,28 @@ export function TaskManagerPanel({
                 </div>
               ))}
             </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => onTaskDialogOpenChange(false)}
-            >
-              <Trans>取消</Trans>
-            </Button>
-            <Button
-              disabled={!taskDraft.inputPaths.length || isConfirmingTasks}
-              onClick={onConfirmTaskDraft}
-            >
-              <ListPlusIcon data-icon="inline-start" />
-              {isConfirmingTasks ? (
-                <Trans>加入中</Trans>
-              ) : (
-                <Trans>加入任務</Trans>
-              )}
-            </Button>
-          </DialogFooter>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => onTaskDialogOpenChange(false)}
+                >
+                  <Trans>取消</Trans>
+                </Button>
+                <Button
+                  disabled={!taskDraft.inputPaths.length || isConfirmingTasks}
+                  onClick={onConfirmTaskDraft}
+                >
+                  <ListPlusIcon data-icon="inline-start" />
+                  {isConfirmingTasks ? (
+                    <Trans>加入中</Trans>
+                  ) : (
+                    <Trans>加入任務</Trans>
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>
@@ -718,7 +765,7 @@ function TaskDetailSheet({
               viewportClassName="scroll-fade"
               viewportRef={scrollViewportRef}
             >
-              <div className="flex min-w-0 flex-col gap-5">
+              <div className="flex min-w-0 flex-col">
                 <div className="flex min-w-0 flex-col gap-3 pb-4">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <TaskDetailSectionTitle>
