@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "pnpm i18n:compile && tsc && vite build",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "i18n:extract": "lingui extract",
     "i18n:compile": "lingui compile --strict",
     "preview": "vite preview",
@@ -48,6 +50,8 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "prettier": "^3.9.5",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }
