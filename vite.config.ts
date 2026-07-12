@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { fileURLToPath, URL } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -7,6 +8,21 @@ import { defineConfig } from "vite";
 
 const host = process.env.TAURI_DEV_HOST;
 const devHost = host || "127.0.0.1";
+
+function getCommitSha(): string {
+  const configuredSha = process.env.VITE_COMMIT_SHA?.trim();
+  if (configuredSha) {
+    return configuredSha.slice(0, 7);
+  }
+
+  try {
+    return execFileSync("git", ["rev-parse", "--short=7", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -47,6 +63,9 @@ export default defineConfig(async () => ({
     },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
+  define: {
+    __APP_COMMIT_SHA__: JSON.stringify(getCommitSha()),
+  },
   build: {
     target:
       process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",

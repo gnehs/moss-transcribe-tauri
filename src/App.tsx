@@ -5,8 +5,12 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { AppToolbar } from "@/components/app/AppToolbar";
+import { AboutWindow } from "@/components/transcription/AboutWindow";
 import { SettingsPanel } from "@/components/transcription/SettingsPanel";
 import { TaskManagerPanel } from "@/components/transcription/TaskManagerPanel";
 import { Button } from "@/components/ui/button";
@@ -21,14 +25,41 @@ import {
 } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTranscriptionWorkspace } from "@/hooks/use-transcription-workspace";
+import { githubUrl } from "@/lib/app-constants";
 
 function App() {
+  const isAboutWindow =
+    new URLSearchParams(window.location.search).get("window") === "about";
+
+  return isAboutWindow ? <AboutWindow /> : <MainWindow />;
+}
+
+function MainWindow() {
   const workspace = useTranscriptionWorkspace();
+  const [isSettingsOpen, setSettingsOpen] = useState(false);
   const hasFinishedTasks = workspace.tasks.some(
     (task) => task.status === "completed"
   );
   const shouldShowDragOverlay =
     workspace.isDraggingFiles && workspace.tasks.length > 0;
+
+  useEffect(() => {
+    const unlisteners = Promise.all([
+      listen("open-settings", () => setSettingsOpen(true)),
+      listen("new-task", () => {
+        void workspace.pickFilesForTasks().catch(() => {});
+      }),
+      listen("open-github", () => {
+        void openUrl(githubUrl).catch(() => {});
+      }),
+    ]);
+
+    return () => {
+      void unlisteners
+        .then((items) => items.forEach((unlisten) => unlisten()))
+        .catch(() => {});
+    };
+  }, [workspace.pickFilesForTasks]);
 
   return (
     <TooltipProvider>
@@ -78,7 +109,10 @@ function App() {
               ) : undefined
             }
             utilities={
-              <Sheet>
+              <Sheet
+                open={isSettingsOpen}
+                onOpenChange={(open) => setSettingsOpen(open)}
+              >
                 <SheetTrigger render={<Button variant="outline" size="sm" />}>
                   <Settings2Icon data-icon="inline-start" />
                   <Trans>設定</Trans>

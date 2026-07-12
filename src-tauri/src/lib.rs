@@ -27,15 +27,71 @@ use models::{
     TranscriptStreamEvent, TranscriptionResponse,
 };
 pub use models::{ProgressEvent, TranscribeOptions, TranscriptResult, TranscriptSegment};
-use tauri::{ipc::Channel, AppHandle, Emitter, State, WebviewUrl, WebviewWindowBuilder};
+use serde::Deserialize;
+use tauri::{
+    ipc::Channel, AppHandle, Emitter, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
 #[cfg(target_os = "macos")]
-use tauri::{LogicalPosition, TitleBarStyle};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    LogicalPosition, Manager, PhysicalPosition, TitleBarStyle, WindowEvent,
+};
+
+#[cfg(target_os = "macos")]
+const ABOUT_WINDOW_LABEL: &str = "about";
+#[cfg(target_os = "macos")]
+const ABOUT_MENU_ID: &str = "about";
+#[cfg(target_os = "macos")]
+const SETTINGS_MENU_ID: &str = "settings";
+#[cfg(target_os = "macos")]
+const NEW_TASK_MENU_ID: &str = "new-task";
+#[cfg(target_os = "macos")]
+const GITHUB_MENU_ID: &str = "github";
+const OPEN_SETTINGS_EVENT: &str = "open-settings";
+const NEW_TASK_EVENT: &str = "new-task";
+const OPEN_GITHUB_EVENT: &str = "open-github";
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeMenuText {
+    about: String,
+    settings: String,
+    file: String,
+    new_task: String,
+    edit: String,
+    window: String,
+    help: String,
+    github: String,
+}
+
+impl Default for NativeMenuText {
+    fn default() -> Self {
+        Self {
+            about: "關於 MOSS Transcribe Studio".into(),
+            settings: "設定".into(),
+            file: "檔案".into(),
+            new_task: "新增任務".into(),
+            edit: "編輯".into(),
+            window: "視窗".into(),
+            help: "說明".into(),
+            github: "GitHub".into(),
+        }
+    }
+}
 
 #[derive(Default)]
 struct InferenceState {
     transcriber: Arc<Mutex<Option<MossTranscriber>>>,
     model_operation: Arc<Mutex<()>>,
+}
+
+struct NativeMenuState(Mutex<NativeMenuText>);
+
+impl Default for NativeMenuState {
+    fn default() -> Self {
+        Self(Mutex::new(NativeMenuText::default()))
+    }
 }
 
 struct InferenceMemorySession<'a> {
@@ -99,6 +155,44 @@ fn get_runtime_info(app: AppHandle) -> RuntimeInfo {
         metal_device: apple_chip_name(),
         app_version: app.package_info().version.to_string(),
     }
+}
+
+#[tauri::command]
+fn set_native_menu_text(app: AppHandle, menu: NativeMenuText) -> Result<(), String> {
+    if [
+        &menu.about,
+        &menu.settings,
+        &menu.file,
+        &menu.new_task,
+        &menu.edit,
+        &menu.window,
+        &menu.help,
+        &menu.github,
+    ]
+    .iter()
+    .any(|text| text.trim().is_empty())
+    {
+        return Err("Native menu text cannot be empty".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        set_application_menu(&app, &menu).map_err(|error| error.to_string())?;
+
+        if let Some(about) = app.get_webview_window(ABOUT_WINDOW_LABEL) {
+            about
+                .set_title(&menu.about)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    let state = app.state::<NativeMenuState>();
+    let mut current = state
+        .0
+        .lock()
+        .map_err(|_| "Native menu text state is unavailable".to_string())?;
+    *current = menu;
+    Ok(())
 }
 
 #[tauri::command]
@@ -348,9 +442,130 @@ fn apple_chip_name() -> Option<String> {
     None
 }
 
+#[cfg(target_os = "macos")]
+fn centered_position(
+    main: &WebviewWindow,
+    about: &WebviewWindow,
+) -> tauri::Result<PhysicalPosition<i32>> {
+    let main_position = main.outer_position()?;
+    let main_size = main.outer_size()?;
+    let about_size = about.outer_size()?;
+
+    let center_axis = |position: i32, main_length: u32, about_length: u32| {
+        let centered = i64::from(position) + (i64::from(main_length) - i64::from(about_length)) / 2;
+        centered.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+    };
+
+    Ok(PhysicalPosition::new(
+        center_axis(main_position.x, main_size.width, about_size.width),
+        center_axis(main_position.y, main_size.height, about_size.height),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn show_about_window(app: &AppHandle) -> tauri::Result<()> {
+    let Some(main) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    let about = if let Some(about) = app.get_webview_window(ABOUT_WINDOW_LABEL) {
+        about
+    } else {
+        let about_title = app
+            .state::<NativeMenuState>()
+            .0
+            .lock()
+            .map(|menu| menu.about.clone())
+            .unwrap_or_else(|_| NativeMenuText::default().about);
+        let about = WebviewWindowBuilder::new(
+            app,
+            ABOUT_WINDOW_LABEL,
+            WebviewUrl::App("index.html?window=about".into()),
+        )
+        .title(about_title)
+        .inner_size(540.0, 400.0)
+        .resizable(false)
+        .visible(false)
+        .build()?;
+
+        let about_for_close = about.clone();
+        about.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = about_for_close.hide();
+            }
+        });
+        about
+    };
+
+    about.set_position(centered_position(&main, &about)?)?;
+    about.show()?;
+    about.set_focus()?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn set_application_menu(app: &AppHandle, menu_text: &NativeMenuText) -> tauri::Result<()> {
+    let about_item = MenuItemBuilder::with_id(ABOUT_MENU_ID, &menu_text.about).build(app)?;
+    let settings_item = MenuItemBuilder::with_id(SETTINGS_MENU_ID, &menu_text.settings)
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+    let application_menu = SubmenuBuilder::new(app, "MOSS Transcribe Studio")
+        .item(&about_item)
+        .separator()
+        .item(&settings_item)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let new_task_item = MenuItemBuilder::with_id(NEW_TASK_MENU_ID, &menu_text.new_task)
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let file_menu = SubmenuBuilder::new(app, &menu_text.file)
+        .item(&new_task_item)
+        .separator()
+        .close_window()
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(app, &menu_text.edit)
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let window_menu = SubmenuBuilder::new(app, &menu_text.window)
+        .minimize()
+        .maximize()
+        .fullscreen()
+        .separator()
+        .bring_all_to_front()
+        .build()?;
+    let help_menu = SubmenuBuilder::new(app, &menu_text.help)
+        .text(GITHUB_MENU_ID, &menu_text.github)
+        .build()?;
+    app.set_menu(
+        MenuBuilder::new(app)
+            .item(&application_menu)
+            .item(&file_menu)
+            .item(&edit_menu)
+            .item(&window_menu)
+            .item(&help_menu)
+            .build()?,
+    )?;
+    Ok(())
+}
+
 pub fn run() -> Result<(), tauri::Error> {
     tauri::Builder::default()
         .manage(InferenceState::default())
+        .manage(NativeMenuState::default())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -367,6 +582,27 @@ pub fn run() -> Result<(), tauri::Error> {
                 .traffic_light_position(LogicalPosition::new(14.0, 25.0));
 
             window_builder.build()?;
+
+            #[cfg(target_os = "macos")]
+            {
+                set_application_menu(app.handle(), &NativeMenuText::default())?;
+
+                app.on_menu_event(|app, event| {
+                    let menu_id = event.id().0.as_str();
+                    if menu_id == ABOUT_MENU_ID {
+                        if let Err(error) = show_about_window(app) {
+                            eprintln!("Failed to show About window: {error}");
+                        }
+                    } else if menu_id == SETTINGS_MENU_ID {
+                        let _ = app.emit(OPEN_SETTINGS_EVENT, ());
+                    } else if menu_id == NEW_TASK_MENU_ID {
+                        let _ = app.emit(NEW_TASK_EVENT, ());
+                    } else if menu_id == GITHUB_MENU_ID {
+                        let _ = app.emit(OPEN_GITHUB_EVENT, ());
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -377,6 +613,7 @@ pub fn run() -> Result<(), tauri::Error> {
             redownload_model,
             delete_model,
             transcribe_file,
+            set_native_menu_text,
         ])
         .run(tauri::generate_context!())
 }

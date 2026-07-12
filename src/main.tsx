@@ -4,7 +4,7 @@ import { i18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
 import { ThemeProvider } from "next-themes";
 import App from "./App";
-import { dynamicActivate, getInitialLocale } from "./i18n";
+import { dynamicActivate, getInitialLocale, syncNativeMenuText } from "./i18n";
 import "./index.css";
 
 const root = ReactDOM.createRoot(
@@ -13,6 +13,7 @@ const root = ReactDOM.createRoot(
 
 async function bootstrap() {
   await dynamicActivate(getInitialLocale());
+  await syncNativeMenuText();
   root.render(
     <React.StrictMode>
       <ThemeProvider

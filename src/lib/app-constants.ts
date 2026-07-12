@@ -2,6 +2,10 @@ import type { TaskDraft } from "@/types/transcription";
 
 export const mossModelRepository = "OpenMOSS-Team/MOSS-Transcribe-Diarize";
 
+export const appName = "MOSS Transcribe Studio";
+export const githubUrl = "https://github.com/gnehs/moss-transcribe-tauri";
+export const coffeeUrl = "https://www.buymeacoffee.com/gnehs";
+
 export const audioFilters = [
   {
     name: "Audio and video",

@@ -425,11 +425,11 @@ export function useTranscriptionWorkspace() {
     if (next) void runQueuedTask(next);
   }, [runQueuedTask, tasks]);
 
-  async function pickFilesForTasks() {
+  const pickFilesForTasks = useCallback(async () => {
     const selected = await open({ multiple: true, filters: audioFilters });
     const paths = pathsFromDialogSelection(selected);
     if (paths.length > 0) openTaskDialog(paths);
-  }
+  }, [openTaskDialog]);
 
   async function pickTaskOutputDir() {
     const selected = await open({ directory: true, multiple: false });
