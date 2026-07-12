@@ -7,6 +7,9 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+use mlx_rs::{memory, Stream};
+
 use crate::{
     error::{AppError, AppResult},
     models::{ProgressEvent, TaskStage, TranscribeOptions, TranscriptResult},
@@ -26,6 +29,94 @@ use processor::{EOS_TOKEN_ID, PAD_TOKEN_ID};
 
 const LONG_AUDIO_MAX_NEW_TOKENS: usize = 65_536;
 const ESTIMATED_OUTPUT_TOKEN_OVERHEAD: usize = 128;
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+const MLX_CACHE_LIMIT_BYTES: usize = 1024 * 1024 * 1024;
+
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn begin_mlx_memory_session() -> AppResult<()> {
+    let previous_limit = memory::set_cache_limit(MLX_CACHE_LIMIT_BYTES)
+        .map_err(|error| AppError::Model(format!("Could not set the MLX cache limit: {error}")))?;
+    memory::reset_peak()
+        .map_err(|error| AppError::Model(format!("Could not reset MLX peak memory: {error}")))?;
+    eprintln!(
+        "MLX allocator cache limit: {:.1} MiB (previously {:.1} MiB)",
+        bytes_to_mib(MLX_CACHE_LIMIT_BYTES),
+        bytes_to_mib(previous_limit),
+    );
+    log_mlx_memory("before model load")
+}
+
+#[cfg(not(all(feature = "mlx", target_os = "macos", target_arch = "aarch64")))]
+pub(crate) fn begin_mlx_memory_session() -> AppResult<()> {
+    Ok(())
+}
+
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn log_mlx_memory(stage: &str) -> AppResult<()> {
+    let stats = memory::stats()
+        .map_err(|error| AppError::Model(format!("Could not read MLX memory stats: {error}")))?;
+    eprintln!(
+        "MLX {stage}: active={:.1} MiB, cache={:.1} MiB, peak={:.1} MiB",
+        bytes_to_mib(stats.active),
+        bytes_to_mib(stats.cache),
+        bytes_to_mib(stats.peak),
+    );
+    Ok(())
+}
+
+#[cfg(not(all(feature = "mlx", target_os = "macos", target_arch = "aarch64")))]
+pub(crate) fn log_mlx_memory(_stage: &str) -> AppResult<()> {
+    Ok(())
+}
+
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn cleanup_mlx_memory() -> AppResult<()> {
+    let before = memory::stats().ok();
+    let stream = Stream::task_local_or_default();
+    let synchronize_error = stream.synchronize().err();
+    let clear_error = memory::clear_cache().err();
+    let after = memory::stats()
+        .map_err(|error| AppError::Model(format!("Could not read MLX memory stats: {error}")))?;
+
+    if let Some(before) = before {
+        eprintln!(
+            "MLX after model unload: active={:.1} MiB, cache={:.1} -> {:.1} MiB, peak={:.1} MiB",
+            bytes_to_mib(after.active),
+            bytes_to_mib(before.cache),
+            bytes_to_mib(after.cache),
+            bytes_to_mib(after.peak),
+        );
+    } else {
+        eprintln!(
+            "MLX after model unload: active={:.1} MiB, cache={:.1} MiB, peak={:.1} MiB",
+            bytes_to_mib(after.active),
+            bytes_to_mib(after.cache),
+            bytes_to_mib(after.peak),
+        );
+    }
+
+    if let Some(error) = synchronize_error {
+        return Err(AppError::Model(format!(
+            "Could not synchronize MLX before cleanup: {error}"
+        )));
+    }
+    if let Some(error) = clear_error {
+        return Err(AppError::Model(format!(
+            "Could not clear the MLX allocator cache: {error}"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(all(feature = "mlx", target_os = "macos", target_arch = "aarch64")))]
+pub(crate) fn cleanup_mlx_memory() -> AppResult<()> {
+    Ok(())
+}
+
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+fn bytes_to_mib(bytes: usize) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
 
 #[derive(Debug, Deserialize)]
 struct MossConfig {

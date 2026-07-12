@@ -14,7 +14,7 @@ compile_error!("MOSS Transcribe Studio only supports Apple Silicon macOS");
 use std::{
     path::PathBuf,
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
     time::Instant,
 };
 
@@ -35,6 +35,44 @@ use tauri::{LogicalPosition, TitleBarStyle};
 struct InferenceState {
     transcriber: Arc<Mutex<Option<MossTranscriber>>>,
     model_operation: Arc<Mutex<()>>,
+}
+
+struct InferenceMemorySession<'a> {
+    transcriber: MutexGuard<'a, Option<MossTranscriber>>,
+    cleaned: bool,
+}
+
+impl<'a> InferenceMemorySession<'a> {
+    fn begin(state: &'a Mutex<Option<MossTranscriber>>) -> AppResult<Self> {
+        let transcriber = state
+            .lock()
+            .map_err(|_| AppError::Transcription("Inference worker state is unavailable".into()))?;
+        inference::begin_mlx_memory_session()?;
+        Ok(Self {
+            transcriber,
+            cleaned: false,
+        })
+    }
+
+    fn cleanup(&mut self) -> AppResult<()> {
+        let model = self.transcriber.take();
+        drop(model);
+        inference::cleanup_mlx_memory()?;
+        self.cleaned = true;
+        Ok(())
+    }
+}
+
+impl Drop for InferenceMemorySession<'_> {
+    fn drop(&mut self) {
+        if !self.cleaned {
+            let model = self.transcriber.take();
+            drop(model);
+            if let Err(error) = inference::cleanup_mlx_memory() {
+                eprintln!("MLX fallback cleanup failed: {error}");
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -83,12 +121,13 @@ async fn redownload_model(
     app: AppHandle,
     state: State<'_, InferenceState>,
 ) -> AppResult<ModelStatus> {
-    drop_loaded_model(&state)?;
     let operation = state.model_operation.clone();
+    let transcriber = state.transcriber.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = operation
             .lock()
             .map_err(|_| AppError::Model("Model operation state is unavailable".into()))?;
+        drop_loaded_model(&transcriber)?;
         downloader::download_model(app, true)
     })
     .await
@@ -97,12 +136,13 @@ async fn redownload_model(
 
 #[tauri::command]
 async fn delete_model(state: State<'_, InferenceState>) -> AppResult<ModelStatus> {
-    drop_loaded_model(&state)?;
     let operation = state.model_operation.clone();
+    let transcriber = state.transcriber.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = operation
             .lock()
             .map_err(|_| AppError::Model("Model operation state is unavailable".into()))?;
+        drop_loaded_model(&transcriber)?;
         paths::delete_model()
     })
     .await
@@ -116,15 +156,19 @@ async fn transcribe_file(
     request: TranscribeFileRequest,
 ) -> AppResult<TranscriptionResponse> {
     validate_request(&request)?;
-    let state = state.inner().transcriber.clone();
-    tauri::async_runtime::spawn_blocking(move || run_transcription(app, state, request))
-        .await
-        .map_err(|error| AppError::Transcription(error.to_string()))?
+    let transcriber = state.inner().transcriber.clone();
+    let operation = state.inner().model_operation.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_transcription(app, transcriber, operation, request)
+    })
+    .await
+    .map_err(|error| AppError::Transcription(error.to_string()))?
 }
 
 fn run_transcription(
     app: AppHandle,
     state: Arc<Mutex<Option<MossTranscriber>>>,
+    operation: Arc<Mutex<()>>,
     request: TranscribeFileRequest,
 ) -> AppResult<TranscriptionResponse> {
     let started = Instant::now();
@@ -143,6 +187,15 @@ fn run_transcription(
                 estimated_generated_tokens: 0,
             },
         );
+    };
+
+    let operation_guard = match operation.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            let error = AppError::Transcription("Model operation state is unavailable".into());
+            emit(TaskStage::Failed, 0.0, error.to_string(), None, 0, 0);
+            return Err(error);
+        }
     };
 
     let result: AppResult<TranscriptionResponse> = (|| {
@@ -166,52 +219,71 @@ fn run_transcription(
             0,
         );
 
-        let mut guard = state
-            .lock()
-            .map_err(|_| AppError::Transcription("Inference worker state is unavailable".into()))?;
-        if guard.is_none() {
-            *guard = Some(MossTranscriber::load(&paths::model_dir()?)?);
-        }
-        let transcriber = guard
-            .as_mut()
-            .ok_or_else(|| AppError::Transcription("MOSS model could not be loaded".into()))?;
-        let task_id = request.task_id.clone();
-        let mut transcript =
-            transcriber.transcribe(&decoded.pcm, &request.options, |mut progress| {
-                progress.task_id.clone_from(&task_id);
-                progress.elapsed_ms = started.elapsed().as_millis() as u64;
-                progress.audio_duration_ms = duration;
-                let _ = app.emit("transcription-progress", progress);
-            })?;
+        let mut session = InferenceMemorySession::begin(&state)?;
+        let inference_result = (|| {
+            if session.transcriber.is_none() {
+                *session.transcriber = Some(MossTranscriber::load(&paths::model_dir()?)?);
+            }
+            if let Err(error) = inference::log_mlx_memory("after model load") {
+                eprintln!("{error}");
+            }
+            let transcriber = session
+                .transcriber
+                .as_mut()
+                .ok_or_else(|| AppError::Transcription("MOSS model could not be loaded".into()))?;
+            let task_id = request.task_id.clone();
+            let mut transcript =
+                transcriber.transcribe(&decoded.pcm, &request.options, |mut progress| {
+                    progress.task_id.clone_from(&task_id);
+                    progress.elapsed_ms = started.elapsed().as_millis() as u64;
+                    progress.audio_duration_ms = duration;
+                    let _ = app.emit("transcription-progress", progress);
+                })?;
+            if let Err(error) = inference::log_mlx_memory("after inference") {
+                eprintln!("{error}");
+            }
 
-        if request.options.convert_to_traditional {
-            conversion::simplified_to_traditional(&mut transcript)?;
-        }
+            if request.options.convert_to_traditional {
+                conversion::simplified_to_traditional(&mut transcript)?;
+            }
 
-        let outputs = export::export_result(&audio_path, &request.export, &transcript)?;
-        emit(
+            let outputs = export::export_result(&audio_path, &request.export, &transcript)?;
+            Ok(TranscriptionResponse {
+                audio_path: request.audio_path.clone(),
+                audio_duration_ms: decoded.duration_ms,
+                text: transcript.text,
+                segments: transcript.segments,
+                prompt_tokens: transcript.prompt_tokens,
+                generated_tokens: transcript.generated_tokens,
+                truncated: transcript.truncated,
+                outputs,
+            })
+        })();
+
+        let cleanup_result = session.cleanup();
+        match (inference_result, cleanup_result) {
+            (Ok(response), Ok(())) => Ok(response),
+            (Ok(_), Err(cleanup_error)) => Err(cleanup_error),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(cleanup_error)) => {
+                eprintln!("MLX cleanup after task failure also failed: {cleanup_error}");
+                Err(error)
+            }
+        }
+    })();
+
+    match &result {
+        Ok(response) => emit(
             TaskStage::Completed,
             100.0,
             "Transcription complete".into(),
-            duration,
-            transcript.prompt_tokens,
-            transcript.generated_tokens,
-        );
-        Ok(TranscriptionResponse {
-            audio_path: request.audio_path.clone(),
-            audio_duration_ms: decoded.duration_ms,
-            text: transcript.text,
-            segments: transcript.segments,
-            prompt_tokens: transcript.prompt_tokens,
-            generated_tokens: transcript.generated_tokens,
-            truncated: transcript.truncated,
-            outputs,
-        })
-    })();
-
-    if let Err(error) = &result {
-        emit(TaskStage::Failed, 0.0, error.to_string(), None, 0, 0);
+            Some(response.audio_duration_ms),
+            response.prompt_tokens,
+            response.generated_tokens,
+        ),
+        Err(error) => emit(TaskStage::Failed, 0.0, error.to_string(), None, 0, 0),
     }
+    drop(operation_guard);
     result
 }
 
@@ -231,13 +303,13 @@ fn validate_request(request: &TranscribeFileRequest) -> AppResult<()> {
     Ok(())
 }
 
-fn drop_loaded_model(state: &State<'_, InferenceState>) -> AppResult<()> {
+fn drop_loaded_model(state: &Mutex<Option<MossTranscriber>>) -> AppResult<()> {
     let mut transcriber = state
-        .transcriber
         .try_lock()
         .map_err(|_| AppError::Model("The model is busy with a transcription task".into()))?;
-    *transcriber = None;
-    Ok(())
+    let model = transcriber.take();
+    drop(model);
+    inference::cleanup_mlx_memory()
 }
 
 fn apple_chip_name() -> Option<String> {

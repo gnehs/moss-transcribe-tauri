@@ -197,6 +197,11 @@ impl Stream {
         i32::try_from_op(|res| unsafe { mlx_sys::mlx_stream_get_index(res, self.c_stream) })
     }
 
+    /// Wait until all work submitted to this stream has completed.
+    pub fn synchronize(&self) -> Result<()> {
+        <() as Guarded>::try_from_op(|_| unsafe { mlx_sys::mlx_synchronize(self.c_stream) })
+    }
+
     fn describe(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         unsafe {
             let mut mlx_str = mlx_sys::mlx_string_new();
