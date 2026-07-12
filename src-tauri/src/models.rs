@@ -95,12 +95,15 @@ pub struct ProgressEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptStreamEvent {
     pub task_id: String,
+    /// Raw partial text before the first complete timestamped segment.
     pub text: String,
+    /// Replace the receiver's cached segment tail starting at this index.
+    pub segment_offset: usize,
     pub segments: Vec<TranscriptSegment>,
     pub generated_tokens: usize,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscribeOptions {
     pub prompt: Option<String>,
@@ -108,16 +111,6 @@ pub struct TranscribeOptions {
     pub max_new_tokens: Option<usize>,
     #[serde(default)]
     pub convert_to_traditional: bool,
-}
-
-impl Default for TranscribeOptions {
-    fn default() -> Self {
-        Self {
-            prompt: None,
-            max_new_tokens: None,
-            convert_to_traditional: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -162,6 +155,8 @@ pub struct OutputPaths {
 pub struct TranscribeFileRequest {
     pub task_id: String,
     pub audio_path: String,
+    #[serde(default)]
+    pub keep_model_loaded: bool,
     pub options: TranscribeOptions,
     pub export: ExportOptions,
 }

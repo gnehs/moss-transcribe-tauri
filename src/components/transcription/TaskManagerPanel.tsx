@@ -1,5 +1,5 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
@@ -98,6 +98,13 @@ const stageProgressRanges: Array<{ stage: TimedTaskStage; range: string }> = [
   { stage: "generating", range: "3–99%" },
 ];
 
+const activeTaskStatuses = new Set<TaskStatus>([
+  "preparing",
+  "encoding",
+  "prefilling",
+  "generating",
+]);
+
 function StatusLabel({ status }: { status: TaskStatus }) {
   switch (status) {
     case "queued":
@@ -156,11 +163,25 @@ function taskEtaMs(task: TranscriptionTask, now: number) {
   return Math.max(0, estimatedTokens - generatedTokens) / tokensPerMs;
 }
 
-function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
-  if (
-    !["preparing", "encoding", "prefilling", "generating"].includes(task.status)
-  )
-    return null;
+function TaskEtaBadge({
+  task,
+  now: externalNow,
+}: {
+  task: TranscriptionTask;
+  now?: number;
+}) {
+  const isActive = activeTaskStatuses.has(task.status);
+  const [localNow, setLocalNow] = useState(Date.now);
+
+  useEffect(() => {
+    if (!isActive || externalNow !== undefined) return;
+    setLocalNow(Date.now());
+    const timer = window.setInterval(() => setLocalNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [externalNow, isActive]);
+
+  if (!isActive) return null;
+  const now = externalNow ?? localNow;
   const etaMs = taskEtaMs(task, now);
   return (
     <>
@@ -173,6 +194,100 @@ function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
     </>
   );
 }
+
+const TaskRow = memo(function TaskRow({
+  task,
+  selected,
+  onRetryTask,
+  onRemoveTask,
+  onSelectedTaskChange,
+}: {
+  task: TranscriptionTask;
+  selected: boolean;
+  onRetryTask: (taskId: string) => void;
+  onRemoveTask: (taskId: string) => void;
+  onSelectedTaskChange: (taskId: string | null) => void;
+}) {
+  const { i18n } = useLingui();
+  return (
+    <TableRow
+      className="data-[selected=true]:bg-primary/5 cursor-pointer"
+      data-selected={selected}
+      onClick={() => onSelectedTaskChange(task.id)}
+    >
+      <TableCell className="w-[42%] max-w-0 min-w-0 pl-[18px] max-[720px]:min-w-[180px] max-[720px]:pl-3">
+        <div className="truncate font-medium">{task.fileName}</div>
+        <div className="text-muted-foreground truncate text-xs">
+          {task.options.outputDir || <Trans>來源資料夾</Trans>}
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge
+          variant={
+            task.result?.truncated ? "destructive" : statusVariant(task.status)
+          }
+        >
+          {task.result?.truncated ? (
+            <Trans>結果不完整</Trans>
+          ) : (
+            <StatusLabel status={task.status} />
+          )}
+        </Badge>
+      </TableCell>
+      <TableCell className="min-w-[170px]">
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 tabular-nums">
+          <div className="flex items-center gap-1 opacity-50">
+            <TaskEtaBadge task={task} />
+          </div>
+          <div>{`${task.percent.toFixed(0)}%`}</div>
+        </div>
+        <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
+      </TableCell>
+      <TableCell className="max-w-[180px] max-[720px]:min-w-[180px]">
+        <div className="truncate">
+          {Object.entries(task.options.outputs)
+            .filter(([, enabled]) => enabled)
+            .map(([format]) => format.toUpperCase())
+            .join(" · ") || <Trans>不輸出檔案</Trans>}
+        </div>
+      </TableCell>
+      <TableCell className="pr-[18px] text-right max-[720px]:pr-3">
+        <div className="flex items-center justify-end gap-2">
+          {task.status === "failed" || task.result?.truncated ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetryTask(task.id);
+              }}
+            >
+              <RotateCcwIcon data-icon="inline-start" />
+              <span className="sr-only">
+                <Trans>重試</Trans>
+              </span>
+            </Button>
+          ) : null}
+          {!activeTaskStatuses.has(task.status) ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemoveTask(task.id);
+              }}
+            >
+              <Trash2Icon data-icon="inline-start" />
+              <span className="sr-only">
+                <Trans>移除</Trans>
+              </span>
+            </Button>
+          ) : null}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 function TaskOutputCheckbox({
   id,
@@ -342,11 +457,7 @@ export function TaskManagerPanel({
 }) {
   const { i18n } = useLingui();
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const [now, setNow] = useState(Date.now());
   const [isCoffeeBannerDismissed, setCoffeeBannerDismissed] = useState(false);
-  const hasActiveTasks = tasks.some((task) =>
-    ["preparing", "encoding", "prefilling", "generating"].includes(task.status)
-  );
   const enabledOutputFormats =
     (taskDraft.outputs.txt ? 1 : 0) +
     (taskDraft.outputs.json ? 1 : 0) +
@@ -371,12 +482,6 @@ export function TaskManagerPanel({
       outputs: { ...current.outputs, [key]: checked },
     }));
   };
-
-  useEffect(() => {
-    if (!hasActiveTasks) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [hasActiveTasks]);
 
   return (
     <>
@@ -408,93 +513,14 @@ export function TaskManagerPanel({
               </TableHeader>
               <TableBody>
                 {tasks.map((task) => (
-                  <TableRow
+                  <TaskRow
                     key={task.id}
-                    className="data-[selected=true]:bg-primary/5 cursor-pointer"
-                    data-selected={selectedTask?.id === task.id}
-                    onClick={() => onSelectedTaskChange(task.id)}
-                  >
-                    <TableCell className="w-[42%] max-w-0 min-w-0 pl-[18px] max-[720px]:min-w-[180px] max-[720px]:pl-3">
-                      <div className="truncate font-medium">
-                        {task.fileName}
-                      </div>
-                      <div className="text-muted-foreground truncate text-xs">
-                        {task.options.outputDir || <Trans>來源資料夾</Trans>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          task.result?.truncated
-                            ? "destructive"
-                            : statusVariant(task.status)
-                        }
-                      >
-                        {task.result?.truncated ? (
-                          <Trans>結果不完整</Trans>
-                        ) : (
-                          <StatusLabel status={task.status} />
-                        )}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="min-w-[170px]">
-                      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 tabular-nums">
-                        <div className="flex items-center gap-1 opacity-50">
-                          <TaskEtaBadge task={task} now={now} />
-                        </div>
-                        <div>{`${task.percent.toFixed(0)}%`}</div>
-                      </div>
-                      <Progress
-                        value={task.percent}
-                        aria-label={i18n._(msg`任務進度`)}
-                      />
-                    </TableCell>
-                    <TableCell className="max-w-[180px] max-[720px]:min-w-[180px]">
-                      <div className="truncate">
-                        {Object.entries(task.options.outputs)
-                          .filter(([, enabled]) => enabled)
-                          .map(([format]) => format.toUpperCase())
-                          .join(" · ") || <Trans>不輸出檔案</Trans>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="pr-[18px] text-right max-[720px]:pr-3">
-                      <div className="flex items-center justify-end gap-2">
-                        {task.status === "failed" || task.result?.truncated ? (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onRetryTask(task.id);
-                            }}
-                          >
-                            <RotateCcwIcon data-icon="inline-start" />
-                            <span className="sr-only">
-                              <Trans>重試</Trans>
-                            </span>
-                          </Button>
-                        ) : null}
-                        {task.status !== "preparing" &&
-                        task.status !== "encoding" &&
-                        task.status !== "prefilling" &&
-                        task.status !== "generating" ? (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onRemoveTask(task.id);
-                            }}
-                          >
-                            <Trash2Icon data-icon="inline-start" />
-                            <span className="sr-only">
-                              <Trans>移除</Trans>
-                            </span>
-                          </Button>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                    task={task}
+                    selected={selectedTask?.id === task.id}
+                    onRetryTask={onRetryTask}
+                    onRemoveTask={onRemoveTask}
+                    onSelectedTaskChange={onSelectedTaskChange}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -536,7 +562,6 @@ export function TaskManagerPanel({
 
       <TaskDetailSheet
         task={selectedTask}
-        now={now}
         onRetryTask={onRetryTask}
         onOpenChange={(open) => !open && onSelectedTaskChange(null)}
       />
@@ -744,18 +769,17 @@ export function TaskManagerPanel({
 
 function TaskDetailSheet({
   task,
-  now,
   onRetryTask,
   onOpenChange,
 }: {
   task: TranscriptionTask | null;
-  now: number;
   onRetryTask: (taskId: string) => void;
   onOpenChange: (open: boolean) => void;
 }) {
   const result = task?.result;
   const transcript = result ?? task?.stream;
   const [activeTab, setActiveTab] = useState("statistics");
+  const [now, setNow] = useState(Date.now);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const elapsedMs = task ? taskElapsedMs(task, now) : null;
   const audioDurationMs =
@@ -770,6 +794,13 @@ function TaskDetailSheet({
   useEffect(() => {
     setActiveTab("statistics");
   }, [task?.id]);
+
+  useEffect(() => {
+    if (!task || !activeTaskStatuses.has(task.status)) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [task?.id, task?.status]);
 
   useLayoutEffect(() => {
     if (activeTab !== "transcript") return;

@@ -84,6 +84,7 @@ export type TranscriptionProgress = {
 export type TranscriptStreamEvent = {
   taskId: TaskId;
   text: string;
+  segmentOffset: number;
   segments: TranscriptSegment[];
   generatedTokens: number;
 };

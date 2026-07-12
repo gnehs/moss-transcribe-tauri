@@ -1,12 +1,10 @@
 use std::{
     ffi::OsString,
-    fs,
-    io::ErrorKind,
+    io::{ErrorKind, Read},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
+    sync::{OnceLock, RwLock},
 };
-
-use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
@@ -32,16 +30,8 @@ pub struct DecodedAudio {
     pub duration_ms: u64,
 }
 
-struct TemporaryWav(PathBuf);
-
-impl Drop for TemporaryWav {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 pub fn ffmpeg_status() -> FfmpegStatus {
-    match resolve_ffmpeg() {
+    match refresh_ffmpeg() {
         Some(ffmpeg) => FfmpegStatus {
             available: true,
             version: Some(ffmpeg.version),
@@ -57,15 +47,14 @@ pub fn ffmpeg_status() -> FfmpegStatus {
 
 pub fn decode_to_pcm(input: &Path) -> AppResult<DecodedAudio> {
     validate_input(input)?;
-    let ffmpeg = resolve_ffmpeg().ok_or_else(|| {
+    let ffmpeg = resolve_ffmpeg_cached().ok_or_else(|| {
         AppError::Audio("找不到 FFmpeg。請安裝 FFmpeg 後在設定中重新檢查。".to_string())
     })?;
-    let output_path = temporary_wav_path()?;
-    let temporary = TemporaryWav(output_path.clone());
-
-    let output = Command::new(&ffmpeg.program)
-        .args(normalize_args(input, &output_path))
-        .output()
+    let mut child = Command::new(&ffmpeg.program)
+        .args(normalize_args(input))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| {
             if error.kind() == ErrorKind::NotFound {
                 AppError::Audio("FFmpeg is unavailable".into())
@@ -73,32 +62,77 @@ pub fn decode_to_pcm(input: &Path) -> AppResult<DecodedAudio> {
                 AppError::Audio(format!("Could not run FFmpeg: {error}"))
             }
         })?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Audio("Could not read FFmpeg audio output".into()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::Audio("Could not read FFmpeg diagnostics".into()))?;
+    let stderr_reader = std::thread::spawn(move || {
+        const DIAGNOSTIC_LIMIT: usize = 64 * 1024;
+        let mut diagnostics = Vec::with_capacity(DIAGNOSTIC_LIMIT);
+        let mut buffer = [0_u8; 8 * 1024];
+        while let Ok(read) = stderr.read(&mut buffer) {
+            if read == 0 {
+                break;
+            }
+            let remaining = DIAGNOSTIC_LIMIT.saturating_sub(diagnostics.len());
+            diagnostics.extend_from_slice(&buffer[..read.min(remaining)]);
+        }
+        diagnostics
+    });
 
-    if !output.status.success() {
+    let mut samples = Vec::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut pending_byte = None;
+    loop {
+        let read = match stdout.read(&mut buffer) {
+            Ok(read) => read,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stderr_reader.join();
+                return Err(AppError::Audio(format!(
+                    "Could not read FFmpeg output: {error}"
+                )));
+            }
+        };
+        if read == 0 {
+            break;
+        }
+        let mut bytes = &buffer[..read];
+        if let Some(first) = pending_byte.take() {
+            samples.push(i16::from_le_bytes([first, bytes[0]]) as f32 / 32768.0);
+            bytes = &bytes[1..];
+        }
+        let mut pairs = bytes.chunks_exact(2);
+        samples.extend(
+            pairs
+                .by_ref()
+                .map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f32 / 32768.0),
+        );
+        pending_byte = pairs.remainder().first().copied();
+    }
+
+    let status = child
+        .wait()
+        .map_err(|error| AppError::Audio(format!("Could not wait for FFmpeg: {error}")))?;
+    let diagnostics = stderr_reader
+        .join()
+        .map_err(|_| AppError::Audio("Could not collect FFmpeg diagnostics".into()))?;
+    if !status.success() {
         return Err(AppError::Audio(format!(
             "FFmpeg failed: {}",
-            summarize_stderr(&output.stderr, input, &output_path)
+            summarize_stderr(&diagnostics, input)
         )));
     }
-
-    let mut reader = hound::WavReader::open(&temporary.0)
-        .map_err(|error| AppError::Audio(format!("Could not read normalized WAV: {error}")))?;
-    let spec = reader.spec();
-    if spec.channels != 1
-        || spec.sample_rate != SAMPLE_RATE
-        || spec.sample_format != hound::SampleFormat::Int
-        || spec.bits_per_sample != 16
-    {
+    if pending_byte.is_some() {
         return Err(AppError::Audio(
-            "FFmpeg returned an unsupported WAV format".into(),
+            "FFmpeg returned an incomplete PCM sample".into(),
         ));
     }
-
-    let samples = reader
-        .samples::<i16>()
-        .map(|sample| sample.map(|value| value as f32 / 32768.0))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| AppError::Audio(format!("Invalid PCM data: {error}")))?;
     if samples.len() < MIN_SAMPLES as usize {
         return Err(AppError::Audio(
             "The selected file contains too little audio".into(),
@@ -133,7 +167,7 @@ fn validate_input(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn normalize_args(input: &Path, output: &Path) -> Vec<OsString> {
+fn normalize_args(input: &Path) -> Vec<OsString> {
     let mut args = ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"]
         .into_iter()
         .map(OsString::from)
@@ -151,32 +185,47 @@ fn normalize_args(input: &Path, output: &Path) -> Vec<OsString> {
             "-acodec",
             "pcm_s16le",
             "-f",
-            "wav",
+            "s16le",
+            "pipe:1",
         ]
         .into_iter()
         .map(OsString::from),
     );
-    args.push(output.as_os_str().to_os_string());
     args
-}
-
-fn temporary_wav_path() -> AppResult<PathBuf> {
-    let directory = std::env::temp_dir().join("moss-transcribe-studio");
-    fs::create_dir_all(&directory)?;
-    Ok(directory.join(format!("{}.wav", Uuid::new_v4())))
 }
 
 fn samples_to_ms(samples: usize) -> u64 {
     (samples as f64 / SAMPLE_RATE as f64 * 1000.0).round() as u64
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ResolvedFfmpeg {
     program: PathBuf,
     version: String,
 }
 
-fn resolve_ffmpeg() -> Option<ResolvedFfmpeg> {
+static FFMPEG_CACHE: OnceLock<RwLock<Option<ResolvedFfmpeg>>> = OnceLock::new();
+
+fn ffmpeg_cache() -> &'static RwLock<Option<ResolvedFfmpeg>> {
+    FFMPEG_CACHE.get_or_init(|| RwLock::new(None))
+}
+
+fn resolve_ffmpeg_cached() -> Option<ResolvedFfmpeg> {
+    if let Some(ffmpeg) = ffmpeg_cache().read().ok().and_then(|cached| cached.clone()) {
+        return Some(ffmpeg);
+    }
+    refresh_ffmpeg()
+}
+
+fn refresh_ffmpeg() -> Option<ResolvedFfmpeg> {
+    let resolved = find_ffmpeg();
+    if let Ok(mut cached) = ffmpeg_cache().write() {
+        *cached = resolved.clone();
+    }
+    resolved
+}
+
+fn find_ffmpeg() -> Option<ResolvedFfmpeg> {
     let mut candidates = vec![PathBuf::from("ffmpeg")];
     #[cfg(target_os = "macos")]
     candidates.extend(MACOS_FFMPEG_PATHS.iter().map(PathBuf::from));
@@ -195,10 +244,8 @@ fn resolve_ffmpeg() -> Option<ResolvedFfmpeg> {
     })
 }
 
-fn summarize_stderr(stderr: &[u8], input: &Path, output: &Path) -> String {
-    let text = String::from_utf8_lossy(stderr)
-        .replace(input.to_string_lossy().as_ref(), "<input>")
-        .replace(output.to_string_lossy().as_ref(), "<output>");
+fn summarize_stderr(stderr: &[u8], input: &Path) -> String {
+    let text = String::from_utf8_lossy(stderr).replace(input.to_string_lossy().as_ref(), "<input>");
     let summary = text
         .lines()
         .map(str::trim)
@@ -219,12 +266,40 @@ mod tests {
 
     #[test]
     fn builds_safe_ffmpeg_arguments_without_a_shell() {
-        let args = normalize_args(Path::new("/tmp/input file.m4a"), Path::new("/tmp/out.wav"))
+        let args = normalize_args(Path::new("/tmp/input file.m4a"))
             .into_iter()
             .map(|value| value.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert_eq!(args[0], "-nostdin");
         assert!(args.contains(&"/tmp/input file.m4a".to_string()));
-        assert_eq!(args.last().map(String::as_str), Some("/tmp/out.wav"));
+        assert_eq!(args.last().map(String::as_str), Some("pipe:1"));
+    }
+
+    #[test]
+    fn decodes_ffmpeg_pcm_pipe_without_a_temporary_output_file() {
+        if find_ffmpeg().is_none() {
+            return;
+        }
+        let input =
+            std::env::temp_dir().join(format!("moss-audio-pipe-{}.wav", uuid::Uuid::new_v4()));
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: SAMPLE_RATE,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer =
+            hound::WavWriter::create(&input, spec).expect("fixture should be writable");
+        for index in 0..800 {
+            writer
+                .write_sample((index as i16).wrapping_mul(31))
+                .expect("fixture sample should be writable");
+        }
+        writer.finalize().expect("fixture should finalize");
+
+        let decoded = decode_to_pcm(&input).expect("FFmpeg pipe decode should succeed");
+        let _ = std::fs::remove_file(input);
+        assert_eq!(decoded.pcm.len(), 800);
+        assert_eq!(decoded.duration_ms, 50);
     }
 }

@@ -15,7 +15,7 @@ enum State {
 ///
 /// An apparent end timestamp is accepted only when the next segment starts, or
 /// when `close` is called. This preserves numeric bracket text such as `[123]`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TranscriptStreamParser {
     state: State,
     token: String,
@@ -70,6 +70,13 @@ impl TranscriptStreamParser {
         }
         self.reset();
         segments
+    }
+
+    /// Returns the currently complete trailing segment without consuming the
+    /// parser state. Segments already returned by `feed` are not repeated.
+    pub fn snapshot(&self) -> Vec<TranscriptSegment> {
+        let mut snapshot = self.clone();
+        snapshot.close()
     }
 
     fn reset(&mut self) {
@@ -286,5 +293,18 @@ mod tests {
         let segments = parse_transcript("[3.0][S02]good[4.0][5.0][S03]truncated");
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].text, "good");
+    }
+
+    #[test]
+    fn snapshot_does_not_consume_or_duplicate_stream_state() {
+        let mut parser = TranscriptStreamParser::new();
+        assert!(parser.feed("[0][S01]first[1]").is_empty());
+        assert_eq!(parser.snapshot()[0].text, "first");
+        assert_eq!(parser.snapshot()[0].text, "first");
+
+        let completed = parser.feed("[2][S02]second[3]");
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].text, "first");
+        assert_eq!(parser.snapshot()[0].text, "second");
     }
 }

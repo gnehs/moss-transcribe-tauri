@@ -14,7 +14,7 @@ compile_error!("MOSS Transcribe Studio only supports Apple Silicon macOS");
 use std::{
     path::PathBuf,
     process::Command,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError},
     time::Instant,
 };
 
@@ -111,9 +111,11 @@ impl<'a> InferenceMemorySession<'a> {
         })
     }
 
-    fn cleanup(&mut self) -> AppResult<()> {
-        let model = self.transcriber.take();
-        drop(model);
+    fn cleanup(&mut self, unload_model: bool) -> AppResult<()> {
+        if unload_model {
+            let model = self.transcriber.take();
+            drop(model);
+        }
         inference::cleanup_mlx_memory()?;
         self.cleaned = true;
         Ok(())
@@ -245,6 +247,26 @@ async fn delete_model(state: State<'_, InferenceState>) -> AppResult<ModelStatus
 }
 
 #[tauri::command]
+async fn unload_model(state: State<'_, InferenceState>) -> AppResult<()> {
+    let operation = state.model_operation.clone();
+    let transcriber = state.transcriber.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = match operation.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => return Ok(()),
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(AppError::Model(
+                    "Model operation state is unavailable".into(),
+                ))
+            }
+        };
+        drop_loaded_model(&transcriber)
+    })
+    .await
+    .map_err(|error| AppError::Model(error.to_string()))?
+}
+
+#[tauri::command]
 async fn transcribe_file(
     app: AppHandle,
     state: State<'_, InferenceState>,
@@ -335,8 +357,8 @@ fn run_transcription(
                 .convert_to_traditional
                 .then(conversion::TraditionalConverter::new)
                 .transpose()?;
-            let mut transcript = transcriber.transcribe(
-                &decoded.pcm,
+            let mut transcript = transcriber.transcribe_owned(
+                decoded.pcm,
                 &request.options,
                 |mut progress| {
                     progress.task_id.clone_from(&task_id);
@@ -373,7 +395,8 @@ fn run_transcription(
             })
         })();
 
-        let cleanup_result = session.cleanup();
+        let unload_model = inference_result.is_err() || !request.keep_model_loaded;
+        let cleanup_result = session.cleanup(unload_model);
         match (inference_result, cleanup_result) {
             (Ok(response), Ok(())) => Ok(response),
             (Ok(_), Err(cleanup_error)) => Err(cleanup_error),
@@ -426,6 +449,11 @@ fn drop_loaded_model(state: &Mutex<Option<MossTranscriber>>) -> AppResult<()> {
 }
 
 fn apple_chip_name() -> Option<String> {
+    static CHIP_NAME: OnceLock<Option<String>> = OnceLock::new();
+    CHIP_NAME.get_or_init(query_apple_chip_name).clone()
+}
+
+fn query_apple_chip_name() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         let output = Command::new("sysctl")
@@ -612,6 +640,7 @@ pub fn run() -> Result<(), tauri::Error> {
             download_model,
             redownload_model,
             delete_model,
+            unload_model,
             transcribe_file,
             set_native_menu_text,
         ])

@@ -3,7 +3,10 @@ mod mel;
 mod mlx_runtime;
 mod processor;
 
-use std::path::Path;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use serde::Deserialize;
 
@@ -18,20 +21,24 @@ use crate::{
 };
 
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
-use crate::transcript::parse_transcript;
+use crate::transcript::{parse_transcript, TranscriptStreamParser};
 #[cfg(all(feature = "parity-trace", target_os = "macos", target_arch = "aarch64"))]
 pub use mlx_runtime::{generate_native_parity_trace, NativeParityTrace};
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
 use mlx_runtime::{MlxRuntime, RuntimeProgress};
 
 pub use mel::{chunk_audio, WhisperLogMel};
+use mel::{CHUNK_SAMPLES, HOP_LENGTH};
 pub use processor::MossProcessor;
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
 use processor::{EOS_TOKEN_ID, PAD_TOKEN_ID};
 
 const LONG_AUDIO_MAX_NEW_TOKENS: usize = 65_536;
 const ESTIMATED_OUTPUT_TOKEN_OVERHEAD: usize = 128;
-const STREAM_DECODE_INTERVAL_TOKENS: usize = 8;
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+const PROGRESS_THROTTLE_INTERVAL: Duration = Duration::from_millis(500);
+#[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+const STREAM_THROTTLE_INTERVAL: Duration = Duration::from_millis(250);
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
 const MLX_CACHE_LIMIT_BYTES: usize = 1024 * 1024 * 1024;
 
@@ -83,7 +90,7 @@ pub(crate) fn cleanup_mlx_memory() -> AppResult<()> {
 
     if let Some(before) = before {
         eprintln!(
-            "MLX after model unload: active={:.1} MiB, cache={:.1} -> {:.1} MiB, peak={:.1} MiB",
+            "MLX after inference cleanup: active={:.1} MiB, cache={:.1} -> {:.1} MiB, peak={:.1} MiB",
             bytes_to_mib(after.active),
             bytes_to_mib(before.cache),
             bytes_to_mib(after.cache),
@@ -91,7 +98,7 @@ pub(crate) fn cleanup_mlx_memory() -> AppResult<()> {
         );
     } else {
         eprintln!(
-            "MLX after model unload: active={:.1} MiB, cache={:.1} MiB, peak={:.1} MiB",
+            "MLX after inference cleanup: active={:.1} MiB, cache={:.1} MiB, peak={:.1} MiB",
             bytes_to_mib(after.active),
             bytes_to_mib(after.cache),
             bytes_to_mib(after.peak),
@@ -119,6 +126,42 @@ pub(crate) fn cleanup_mlx_memory() -> AppResult<()> {
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
 fn bytes_to_mib(bytes: usize) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
+}
+
+#[derive(Debug)]
+struct CallbackThrottle {
+    interval: Duration,
+    last_emit: Option<Instant>,
+    last_stage: Option<TaskStage>,
+}
+
+impl CallbackThrottle {
+    fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            last_emit: None,
+            last_stage: None,
+        }
+    }
+
+    #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
+    fn should_emit(&mut self, stage: TaskStage, force: bool) -> bool {
+        self.should_emit_at(stage, force, Instant::now())
+    }
+
+    fn should_emit_at(&mut self, stage: TaskStage, force: bool, now: Instant) -> bool {
+        let stage_changed = self.last_stage != Some(stage);
+        let interval_elapsed = self
+            .last_emit
+            .is_none_or(|last_emit| now.duration_since(last_emit) >= self.interval);
+        if force || stage_changed || interval_elapsed {
+            self.last_emit = Some(now);
+            self.last_stage = Some(stage);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +250,18 @@ impl MossTranscriber {
         progress: impl Fn(ProgressEvent),
         stream: impl Fn(TranscriptStreamEvent),
     ) -> AppResult<TranscriptResult> {
+        self.transcribe_owned(pcm.to_vec(), options, progress, stream)
+    }
+
+    /// Transcribes an owned PCM buffer so it can be released as soon as mel
+    /// extraction finishes, before model generation starts.
+    pub fn transcribe_owned(
+        &mut self,
+        pcm: Vec<f32>,
+        options: &TranscribeOptions,
+        progress: impl Fn(ProgressEvent),
+        stream: impl Fn(TranscriptStreamEvent),
+    ) -> AppResult<TranscriptResult> {
         if options
             .max_new_tokens
             .is_some_and(|limit| limit == 0 || limit > 131_072)
@@ -215,34 +270,33 @@ impl MossTranscriber {
                 "max_new_tokens must be between 1 and 131072 when provided".into(),
             ));
         }
-        let chunks = chunk_audio(pcm)?;
+        if pcm.is_empty() {
+            return Err(AppError::Transcription("Audio is empty".into()));
+        }
+        let audio_duration_ms = (pcm.len() as f64 / 16_000.0 * 1000.0) as u64;
+        let audio_feature_lengths = pcm
+            .chunks(CHUNK_SAMPLES)
+            .map(|chunk| chunk.len().div_ceil(HOP_LENGTH * 2 * 4))
+            .collect::<Vec<_>>();
         progress(ProgressEvent {
             task_id: String::new(),
             stage: TaskStage::Encoding,
             percent: 1.5,
-            message: format!("Preparing {} Whisper chunk(s)", chunks.len()),
+            message: format!("Preparing {} Whisper chunk(s)", audio_feature_lengths.len()),
             elapsed_ms: 0,
-            audio_duration_ms: Some((pcm.len() as f64 / 16_000.0 * 1000.0) as u64),
+            audio_duration_ms: Some(audio_duration_ms),
             prompt_tokens: 0,
             generated_tokens: 0,
             estimated_generated_tokens: 0,
         });
-        let mel_chunks = chunks
-            .iter()
-            .map(|chunk| self.mel.extract_chunk(&chunk.pcm))
-            .collect::<AppResult<Vec<_>>>()?;
-        let audio_feature_lengths = chunks
-            .iter()
-            .map(|chunk| chunk.audio_token_length)
-            .collect::<Vec<_>>();
-        let audio_tokens = chunks.iter().map(|chunk| chunk.audio_token_length).sum();
-        let estimated_generated_tokens = estimated_output_tokens(audio_tokens);
+        let audio_tokens = audio_feature_lengths.iter().sum();
         let input_ids = self
             .processor
             .expanded_input_ids(audio_tokens, options.prompt.as_deref())?;
         let prompt_tokens = input_ids.len();
         #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
         {
+            let estimated_generated_tokens = estimated_output_tokens(audio_tokens);
             let max_new_tokens = resolve_generation_limit(
                 self.max_new_tokens,
                 options.max_new_tokens,
@@ -250,11 +304,22 @@ impl MossTranscriber {
                 prompt_tokens,
                 131_072,
             )?;
-            let mut streamed_tokens = Vec::with_capacity(max_new_tokens.min(4096));
+            let mut decode_stream = self.processor.decode_stream();
+            let mut streamed_text = String::new();
+            let mut collect_streamed_text = true;
+            let mut streamed_segments = Vec::new();
+            let mut streamed_segment_offset = 0;
+            let mut stream_parser = TranscriptStreamParser::new();
+            let mut progress_throttle = CallbackThrottle::new(PROGRESS_THROTTLE_INTERVAL);
+            let mut stream_throttle = CallbackThrottle::new(STREAM_THROTTLE_INTERVAL);
+            let mut stream_error = None;
+            let mel_batch = self.mel.extract_audio(&pcm)?;
+            drop(pcm);
+            debug_assert_eq!(mel_batch.audio_feature_lengths, audio_feature_lengths);
             let generated = self.runtime.generate(
                 &input_ids,
-                &mel_chunks,
-                &audio_feature_lengths,
+                mel_batch.features,
+                &mel_batch.audio_feature_lengths,
                 max_new_tokens,
                 |runtime_progress| {
                     let (stage, percent, message, generated_tokens) = match runtime_progress {
@@ -274,20 +339,40 @@ impl MossTranscriber {
                             )
                         }
                         RuntimeProgress::Token { generated, token } => {
-                            streamed_tokens.push(token);
-                            if generated % STREAM_DECODE_INTERVAL_TOKENS == 0
-                                || token == EOS_TOKEN_ID
-                                || token == PAD_TOKEN_ID
-                            {
-                                if let Ok(text) = self.processor.decode(&streamed_tokens) {
-                                    let text = text.trim().to_string();
-                                    stream(TranscriptStreamEvent {
-                                        task_id: String::new(),
-                                        segments: parse_transcript(&text),
-                                        text,
-                                        generated_tokens: generated,
-                                    });
+                            let force = token == EOS_TOKEN_ID || token == PAD_TOKEN_ID;
+                            if stream_error.is_none() {
+                                match decode_stream.step(token) {
+                                    Ok(Some(chunk)) => {
+                                        if collect_streamed_text {
+                                            streamed_text.push_str(&chunk);
+                                        }
+                                        streamed_segments.extend(stream_parser.feed(&chunk));
+                                    }
+                                    Ok(None) => {}
+                                    Err(error) => stream_error = Some(error),
                                 }
+                            }
+                            if stream_error.is_none()
+                                && stream_throttle.should_emit(TaskStage::Generating, force)
+                            {
+                                let segment_offset = streamed_segment_offset;
+                                let mut segments = streamed_segments[segment_offset..].to_vec();
+                                segments.extend(stream_parser.snapshot());
+                                let text = if segments.is_empty() {
+                                    streamed_text.trim().to_string()
+                                } else {
+                                    collect_streamed_text = false;
+                                    streamed_text = String::new();
+                                    String::new()
+                                };
+                                streamed_segment_offset = streamed_segments.len();
+                                stream(TranscriptStreamEvent {
+                                    task_id: String::new(),
+                                    segments,
+                                    text,
+                                    segment_offset,
+                                    generated_tokens: generated,
+                                });
                             }
                             (
                                 TaskStage::Generating,
@@ -297,19 +382,25 @@ impl MossTranscriber {
                             )
                         }
                     };
-                    progress(ProgressEvent {
-                        task_id: String::new(),
-                        stage,
-                        percent: percent.min(99.0),
-                        message,
-                        elapsed_ms: 0,
-                        audio_duration_ms: Some((pcm.len() as f64 / 16_000.0 * 1000.0) as u64),
-                        prompt_tokens,
-                        generated_tokens,
-                        estimated_generated_tokens,
-                    });
+                    let force = matches!(runtime_progress, RuntimeProgress::Token { token, .. } if token == EOS_TOKEN_ID || token == PAD_TOKEN_ID);
+                    if progress_throttle.should_emit(stage, force) {
+                        progress(ProgressEvent {
+                            task_id: String::new(),
+                            stage,
+                            percent: percent.min(99.0),
+                            message,
+                            elapsed_ms: 0,
+                            audio_duration_ms: Some(audio_duration_ms),
+                            prompt_tokens,
+                            generated_tokens,
+                            estimated_generated_tokens,
+                        });
+                    }
                 },
             )?;
+            if let Some(error) = stream_error {
+                eprintln!("Transcript streaming disabled after decode error: {error}");
+            }
             let truncated = generation_was_truncated(&generated);
             let text = self.processor.decode(&generated)?.trim().to_string();
             let segments = parse_transcript(&text);
@@ -318,18 +409,18 @@ impl MossTranscriber {
                     "MOSS did not produce any valid [start][Sxx]text[end] segments".into(),
                 ));
             }
-            return Ok(TranscriptResult {
+            Ok(TranscriptResult {
                 text,
                 segments,
                 prompt_tokens,
                 generated_tokens: generated.len(),
                 truncated,
-            });
+            })
         }
 
         #[cfg(not(all(feature = "mlx", target_os = "macos", target_arch = "aarch64")))]
         {
-            let _ = (mel_chunks, audio_feature_lengths, input_ids, prompt_tokens);
+            let _ = (audio_feature_lengths, input_ids, prompt_tokens, stream);
             Err(AppError::Transcription(
                 "This build does not include the Apple Silicon MLX runtime".into(),
             ))
@@ -450,5 +541,34 @@ mod tests {
         let measured_sample = generation_progress_percent(4_784, 4_688);
         assert!(measured_sample > 98.0 && measured_sample < 99.0);
         assert_eq!(generation_progress_percent(10_000, 4_688), 99.0);
+    }
+
+    #[test]
+    fn callback_throttle_sends_transitions_intervals_and_forced_events() {
+        let interval = Duration::from_millis(150);
+        let start = Instant::now();
+        let mut throttle = CallbackThrottle::new(interval);
+
+        assert!(throttle.should_emit_at(TaskStage::Prefilling, false, start));
+        assert!(!throttle.should_emit_at(
+            TaskStage::Prefilling,
+            false,
+            start + Duration::from_millis(149)
+        ));
+        assert!(throttle.should_emit_at(
+            TaskStage::Generating,
+            false,
+            start + Duration::from_millis(149)
+        ));
+        assert!(throttle.should_emit_at(
+            TaskStage::Generating,
+            true,
+            start + Duration::from_millis(150)
+        ));
+        assert!(throttle.should_emit_at(
+            TaskStage::Generating,
+            false,
+            start + Duration::from_millis(300)
+        ));
     }
 }

@@ -245,16 +245,26 @@ export function useTranscriptionWorkspace() {
   const completedTranscriptionCountRef = useRef(completedTranscriptionCount);
   const countedTaskIdsRef = useRef(new Set<string>());
   const runningTaskIdRef = useRef<string | null>(null);
+  const tasksRef = useRef(tasks);
   const openTaskDialogRef = useRef<(paths: string[]) => void>(() => {});
+  const taskDraftRef = useRef(taskDraft);
+  tasksRef.current = tasks;
+  taskDraftRef.current = taskDraft;
 
   useEffect(() => {
-    saveTaskDraftPreferences(taskDraft);
+    const timer = window.setTimeout(
+      () => saveTaskDraftPreferences(taskDraft),
+      350
+    );
+    return () => window.clearTimeout(timer);
   }, [
     taskDraft.convertToTraditional,
     taskDraft.outputDir,
     taskDraft.outputs,
     taskDraft.prompt,
   ]);
+
+  useEffect(() => () => saveTaskDraftPreferences(taskDraftRef.current), []);
 
   const refreshRuntime = useCallback(async () => {
     const [nextModel, nextFfmpeg, nextSystem] = await Promise.allSettled([
@@ -280,122 +290,145 @@ export function useTranscriptionWorkspace() {
     setTaskDialogOpen(true);
   }, []);
 
-  const runQueuedTask = useCallback(async (task: TranscriptionTask) => {
-    runningTaskIdRef.current = task.id;
-    const startedAt = Date.now();
-    setTasks((current) =>
-      current.map((item) =>
-        item.id === task.id
-          ? {
-              ...item,
-              status: "preparing",
-              startedAt,
-              completedAt: null,
-              stageStartedAt: startedAt,
-              stageTimings: {},
-              error: null,
-              result: null,
-              stream: null,
-              progress: null,
-            }
-          : item
-      )
-    );
-    try {
-      const onStream = new Channel<TranscriptStreamEvent>();
-      onStream.onmessage = (partial) => {
-        if (partial.taskId !== task.id) return;
+  const runQueuedTask = useCallback(
+    async (task: TranscriptionTask, keepModelLoaded: boolean) => {
+      runningTaskIdRef.current = task.id;
+      const startedAt = Date.now();
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                status: "preparing",
+                startedAt,
+                completedAt: null,
+                stageStartedAt: startedAt,
+                stageTimings: {},
+                error: null,
+                result: null,
+                stream: null,
+                progress: null,
+              }
+            : item
+        )
+      );
+      try {
+        const onStream = new Channel<TranscriptStreamEvent>();
+        onStream.onmessage = (partial) => {
+          if (partial.taskId !== task.id) return;
+          setTasks((current) =>
+            current.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    stream: {
+                      ...partial,
+                      text: partial.text || item.stream?.text || "",
+                      segments: [
+                        ...(item.stream?.segments ?? []).slice(
+                          0,
+                          partial.segmentOffset
+                        ),
+                        ...partial.segments,
+                      ],
+                    },
+                    updatedAt: new Date().toISOString(),
+                  }
+                : item
+            )
+          );
+        };
+        const result = await invoke<TranscriptionResult>("transcribe_file", {
+          onStream,
+          request: {
+            taskId: task.id,
+            audioPath: task.inputPath,
+            keepModelLoaded,
+            options: {
+              prompt: task.options.prompt,
+              convertToTraditional: task.options.convertToTraditional,
+            },
+            export: {
+              outputDir: task.options.outputDir || null,
+              writeTxt: task.options.outputs.txt,
+              writeJson: task.options.outputs.json,
+              writeSrt: task.options.outputs.srt,
+            },
+          },
+        });
+        const completedAt = Date.now();
         setTasks((current) =>
           current.map((item) =>
             item.id === task.id
               ? {
                   ...item,
-                  stream: partial,
+                  ...transitionTaskStage(item, "completed", completedAt),
+                  status: "completed",
+                  percent: 100,
+                  progress: null,
+                  result,
+                  stream: null,
+                  completedAt,
                   updatedAt: new Date().toISOString(),
                 }
               : item
           )
         );
-      };
-      const result = await invoke<TranscriptionResult>("transcribe_file", {
-        onStream,
-        request: {
-          taskId: task.id,
-          audioPath: task.inputPath,
-          options: {
-            prompt: task.options.prompt,
-            convertToTraditional: task.options.convertToTraditional,
-          },
-          export: {
-            outputDir: task.options.outputDir || null,
-            writeTxt: task.options.outputs.txt,
-            writeJson: task.options.outputs.json,
-            writeSrt: task.options.outputs.srt,
-          },
-        },
-      });
-      const completedAt = Date.now();
-      setTasks((current) =>
-        current.map((item) =>
-          item.id === task.id
-            ? {
-                ...item,
-                ...transitionTaskStage(item, "completed", completedAt),
-                status: "completed",
-                percent: 100,
-                progress: null,
-                result,
-                stream: null,
-                completedAt,
-                updatedAt: new Date().toISOString(),
-              }
-            : item
-        )
-      );
-      if (!countedTaskIdsRef.current.has(task.id)) {
-        countedTaskIdsRef.current.add(task.id);
-        const nextCompletedTranscriptionCount =
-          completedTranscriptionCountRef.current + 1;
-        completedTranscriptionCountRef.current =
-          nextCompletedTranscriptionCount;
-        setCompletedTranscriptionCount(nextCompletedTranscriptionCount);
-        saveCompletedTranscriptionCount(nextCompletedTranscriptionCount);
-      }
-      if (result.truncated) {
-        toast.warning(i18n._(msg`結果不完整`), {
-          description: i18n._(
-            msg`已保留目前逐字稿。請將較長音訊分段後，重新轉錄遺失的部分。`
-          ),
+        if (!countedTaskIdsRef.current.has(task.id)) {
+          countedTaskIdsRef.current.add(task.id);
+          const nextCompletedTranscriptionCount =
+            completedTranscriptionCountRef.current + 1;
+          completedTranscriptionCountRef.current =
+            nextCompletedTranscriptionCount;
+          setCompletedTranscriptionCount(nextCompletedTranscriptionCount);
+          saveCompletedTranscriptionCount(nextCompletedTranscriptionCount);
+        }
+        if (result.truncated) {
+          toast.warning(i18n._(msg`結果不完整`), {
+            description: i18n._(
+              msg`已保留目前逐字稿。請將較長音訊分段後，重新轉錄遺失的部分。`
+            ),
+          });
+        } else {
+          toast.success(i18n._(msg`${basename(task.inputPath)} 已完成`));
+        }
+        void notifyTranscriptionComplete(task.inputPath);
+      } catch (error) {
+        const message = formatInvokeError(error);
+        const completedAt = Date.now();
+        setTasks((current) =>
+          current.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  ...transitionTaskStage(item, "failed", completedAt),
+                  status: "failed",
+                  error: message,
+                  progress: null,
+                  stream: null,
+                  completedAt,
+                  updatedAt: new Date().toISOString(),
+                }
+              : item
+          )
+        );
+        toast.error(i18n._(msg`${basename(task.inputPath)} 失敗`), {
+          description: message,
         });
-      } else {
-        toast.success(i18n._(msg`${basename(task.inputPath)} 已完成`));
+      } finally {
+        runningTaskIdRef.current = null;
+        if (
+          keepModelLoaded &&
+          !tasksRef.current.some(
+            (item) => item.id !== task.id && item.status === "queued"
+          )
+        ) {
+          void invoke("unload_model").catch(() => {});
+        }
       }
-      void notifyTranscriptionComplete(task.inputPath);
-    } catch (error) {
-      const message = formatInvokeError(error);
-      const completedAt = Date.now();
-      setTasks((current) =>
-        current.map((item) =>
-          item.id === task.id
-            ? {
-                ...item,
-                ...transitionTaskStage(item, "failed", completedAt),
-                status: "failed",
-                error: message,
-                progress: null,
-                completedAt,
-                updatedAt: new Date().toISOString(),
-              }
-            : item
-        )
-      );
-      toast.error(i18n._(msg`${basename(task.inputPath)} 失敗`), {
-        description: message,
-      });
-    } finally {
-      runningTaskIdRef.current = null;
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     void refreshRuntime();
@@ -461,7 +494,12 @@ export function useTranscriptionWorkspace() {
   useEffect(() => {
     if (runningTaskIdRef.current) return;
     const next = tasks.find((task) => task.status === "queued");
-    if (next) void runQueuedTask(next);
+    if (next) {
+      const keepModelLoaded = tasks.some(
+        (task) => task.id !== next.id && task.status === "queued"
+      );
+      void runQueuedTask(next, keepModelLoaded);
+    }
   }, [runQueuedTask, tasks]);
 
   const pickFilesForTasks = useCallback(async () => {
@@ -584,7 +622,7 @@ export function useTranscriptionWorkspace() {
     }
   }
 
-  function retryTask(taskId: string) {
+  const retryTask = useCallback((taskId: string) => {
     setTasks((current) =>
       current.map((task) =>
         task.id === taskId
@@ -604,18 +642,18 @@ export function useTranscriptionWorkspace() {
           : task
       )
     );
-  }
+  }, []);
 
-  function removeTask(taskId: string) {
+  const removeTask = useCallback((taskId: string) => {
     if (taskId === runningTaskIdRef.current) return;
     setTasks((current) => current.filter((task) => task.id !== taskId));
-  }
+  }, []);
 
-  function clearFinishedTasks() {
+  const clearFinishedTasks = useCallback(() => {
     setTasks((current) =>
       current.filter((task) => task.status !== "completed")
     );
-  }
+  }, []);
 
   return {
     tasks,

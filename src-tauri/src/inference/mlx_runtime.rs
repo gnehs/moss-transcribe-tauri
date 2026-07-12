@@ -32,7 +32,7 @@ use crate::error::{AppError, AppResult};
 use super::processor::{AUDIO_TOKEN_ID, EOS_TOKEN_ID, PAD_TOKEN_ID};
 #[cfg(feature = "parity-trace")]
 use super::{
-    mel::{chunk_audio, WhisperLogMel, CHUNK_SAMPLES},
+    mel::{MelBatch, WhisperLogMel, CHUNK_SAMPLES},
     processor::MossProcessor,
 };
 
@@ -199,20 +199,23 @@ impl MlxRuntime {
         })
     }
 
-    /// Batch-encode every padded 30-second mel chunk, concatenate only the
-    /// valid `Li * 4` encoder frames, inject the adapted audio embeddings, and
-    /// run one decoder generation pass.
+    /// Batch-encode one owned contiguous `[chunks, 80, 3000]` mel buffer,
+    /// concatenate only the valid `Li * 4` encoder frames, inject the adapted
+    /// audio embeddings, and run one decoder generation pass.
+    ///
+    /// The host buffer is released immediately after MLX copies it into an
+    /// `Array`, before the audio encoder graph is built.
     pub(crate) fn generate(
         &mut self,
         input_ids: &[u32],
-        mel_chunks: &[Vec<f32>],
+        mel_data: Vec<f32>,
         audio_feature_lengths: &[usize],
         max_new_tokens: usize,
         progress: impl FnMut(RuntimeProgress),
     ) -> AppResult<Vec<u32>> {
         self.generate_observed(
             input_ids,
-            mel_chunks,
+            mel_data,
             audio_feature_lengths,
             max_new_tokens,
             progress,
@@ -223,30 +226,13 @@ impl MlxRuntime {
     fn generate_observed(
         &mut self,
         input_ids: &[u32],
-        mel_chunks: &[Vec<f32>],
+        mel_data: Vec<f32>,
         audio_feature_lengths: &[usize],
         max_new_tokens: usize,
         mut progress: impl FnMut(RuntimeProgress),
         mut observe: impl FnMut(&'static str, &Array) -> AppResult<()>,
     ) -> AppResult<Vec<u32>> {
-        if mel_chunks.is_empty() || mel_chunks.len() != audio_feature_lengths.len() {
-            return Err(AppError::Transcription(
-                "MLX requires one audio feature length per mel chunk".into(),
-            ));
-        }
-        if mel_chunks
-            .iter()
-            .any(|features| features.len() != N_MELS * N_FRAMES)
-        {
-            return Err(AppError::Transcription(format!(
-                "Every Whisper chunk must have shape [{N_MELS}, {N_FRAMES}]"
-            )));
-        }
-        if audio_feature_lengths.iter().any(|length| *length > 375) {
-            return Err(AppError::Transcription(
-                "An audio chunk contains more than 375 merged tokens".into(),
-            ));
-        }
+        let chunk_count = validate_mel_batch(&mel_data, audio_feature_lengths)?;
 
         let placeholder_count = input_ids
             .iter()
@@ -259,12 +245,11 @@ impl MlxRuntime {
             )));
         }
 
-        let mut mel_data = Vec::with_capacity(mel_chunks.len() * N_MELS * N_FRAMES);
-        mel_data.extend(mel_chunks.iter().flat_map(|chunk| chunk.iter().copied()));
         let mel = Array::from_slice(
             &mel_data,
-            &[mel_chunks.len() as i32, N_MELS as i32, N_FRAMES as i32],
+            &[chunk_count as i32, N_MELS as i32, N_FRAMES as i32],
         );
+        drop(mel_data);
         observe("log_mel", &mel)?;
         let encoded = self.whisper.forward(&mel)?;
         observe("whisper_encoder", &encoded)?;
@@ -295,13 +280,36 @@ impl MlxRuntime {
         let inputs_embeds = inject_audio_embeddings(&token_embeds, input_ids, &audio_embeds)?;
         observe("fused_embeddings", &inputs_embeds)?;
 
-        self.qwen.generate(
-            &inputs_embeds,
-            max_new_tokens,
-            |event| progress(event),
-            &mut observe,
-        )
+        self.qwen
+            .generate(&inputs_embeds, max_new_tokens, progress, &mut observe)
     }
+}
+
+fn validate_mel_batch(mel_data: &[f32], audio_feature_lengths: &[usize]) -> AppResult<usize> {
+    let chunk_size = N_MELS * N_FRAMES;
+    if mel_data.is_empty()
+        || mel_data.len() > i32::MAX as usize
+        || !mel_data.len().is_multiple_of(chunk_size)
+    {
+        return Err(AppError::Transcription(format!(
+            "Whisper features must have contiguous shape [chunks, {N_MELS}, {N_FRAMES}]"
+        )));
+    }
+    let chunk_count = mel_data.len() / chunk_size;
+    if chunk_count != audio_feature_lengths.len() {
+        return Err(AppError::Transcription(
+            "MLX requires one audio feature length per mel chunk".into(),
+        ));
+    }
+    if audio_feature_lengths
+        .iter()
+        .any(|length| *length == 0 || *length > 375)
+    {
+        return Err(AppError::Transcription(
+            "An audio chunk must contain between 1 and 375 merged tokens".into(),
+        ));
+    }
+    Ok(chunk_count)
 }
 
 fn inject_audio_embeddings(
@@ -396,16 +404,11 @@ pub fn generate_native_parity_trace(
         )));
     }
 
-    let chunks = chunk_audio(pcm)?;
     let mel = WhisperLogMel::new();
-    let mel_chunks = chunks
-        .iter()
-        .map(|chunk| mel.extract_chunk(&chunk.pcm))
-        .collect::<AppResult<Vec<_>>>()?;
-    let audio_feature_lengths = chunks
-        .iter()
-        .map(|chunk| chunk.audio_token_length)
-        .collect::<Vec<_>>();
+    let MelBatch {
+        features,
+        audio_feature_lengths,
+    } = mel.extract_audio(pcm)?;
     let audio_tokens = audio_feature_lengths.iter().sum();
     let processor = MossProcessor::load(model_dir)?;
     let input_ids = processor.expanded_input_ids(audio_tokens, prompt)?;
@@ -413,7 +416,7 @@ pub fn generate_native_parity_trace(
     let mut captured = RuntimeTraceCapture::default();
     let generated = runtime.generate_observed(
         &input_ids,
-        &mel_chunks,
+        features,
         &audio_feature_lengths,
         PARITY_MAX_NEW_TOKENS,
         |_| {},
@@ -1560,6 +1563,20 @@ mod tests {
         );
         assert_eq!(mask, vec![false, true, false, true, false]);
         assert!(audio_replacement_map(&token_ids, 1).is_err());
+    }
+
+    #[test]
+    fn validates_contiguous_mel_shape_and_chunk_token_lengths() {
+        let chunk = N_MELS * N_FRAMES;
+        assert_eq!(
+            validate_mel_batch(&vec![0.0; chunk * 2], &[375, 13])
+                .expect("two contiguous chunks should validate"),
+            2
+        );
+        assert!(validate_mel_batch(&vec![0.0; chunk - 1], &[375]).is_err());
+        assert!(validate_mel_batch(&vec![0.0; chunk * 2], &[375]).is_err());
+        assert!(validate_mel_batch(&vec![0.0; chunk], &[0]).is_err());
+        assert!(validate_mel_batch(&vec![0.0; chunk], &[376]).is_err());
     }
 
     #[test]

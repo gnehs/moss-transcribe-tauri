@@ -43,6 +43,48 @@ impl WhisperLogMel {
 
     /// Returns a mel-major `[80, 3000]` Whisper feature matrix.
     pub fn extract_chunk(&self, input: &[f32]) -> AppResult<Vec<f32>> {
+        let mut mel = Vec::with_capacity(N_MELS * N_FRAMES);
+        self.extract_chunk_into(input, &mut mel)?;
+        Ok(mel)
+    }
+
+    /// Extracts every 30-second chunk into one contiguous
+    /// `[chunks, 80, 3000]` buffer.
+    ///
+    /// Complete chunks borrow directly from `pcm`; only the final short chunk
+    /// is copied into a zero-padded scratch buffer.
+    pub fn extract_audio(&self, pcm: &[f32]) -> AppResult<MelBatch> {
+        if pcm.is_empty() {
+            return Err(AppError::Transcription("Audio is empty".into()));
+        }
+
+        let chunk_count = pcm.len().div_ceil(CHUNK_SAMPLES);
+        let feature_count = chunk_count
+            .checked_mul(N_MELS * N_FRAMES)
+            .ok_or_else(|| AppError::Transcription("Mel feature buffer is too large".into()))?;
+        let mut features = Vec::with_capacity(feature_count);
+        let mut audio_feature_lengths = Vec::with_capacity(chunk_count);
+
+        for chunk in pcm.chunks(CHUNK_SAMPLES) {
+            audio_feature_lengths.push(audio_token_length(chunk.len()));
+            if chunk.len() == CHUNK_SAMPLES {
+                self.extract_chunk_into(chunk, &mut features)?;
+            } else {
+                let mut padded = Vec::with_capacity(CHUNK_SAMPLES);
+                padded.extend_from_slice(chunk);
+                padded.resize(CHUNK_SAMPLES, 0.0);
+                self.extract_chunk_into(&padded, &mut features)?;
+            }
+        }
+
+        debug_assert_eq!(features.len(), feature_count);
+        Ok(MelBatch {
+            features,
+            audio_feature_lengths,
+        })
+    }
+
+    fn extract_chunk_into(&self, input: &[f32], mel: &mut Vec<f32>) -> AppResult<()> {
         if input.len() != CHUNK_SAMPLES {
             return Err(AppError::Transcription(format!(
                 "Expected a padded 30 second chunk, got {} samples",
@@ -64,7 +106,8 @@ impl WhisperLogMel {
             }
         }
 
-        let mut mel = vec![0.0f32; N_MELS * N_FRAMES];
+        let mel_start = mel.len();
+        mel.resize(mel_start + N_MELS * N_FRAMES, 0.0);
         let mut global_max = f32::NEG_INFINITY;
         for mel_index in 0..N_MELS {
             for frame in 0..N_FRAMES {
@@ -74,16 +117,16 @@ impl WhisperLogMel {
                         * power[frequency * N_FRAMES + frame];
                 }
                 let value = value.max(1.0e-10).log10();
-                mel[mel_index * N_FRAMES + frame] = value;
+                mel[mel_start + mel_index * N_FRAMES + frame] = value;
                 global_max = global_max.max(value);
             }
         }
 
         let floor = global_max - 8.0;
-        for value in &mut mel {
+        for value in &mut mel[mel_start..] {
             *value = (value.max(floor) + 4.0) / 4.0;
         }
-        Ok(mel)
+        Ok(())
     }
 }
 
@@ -94,11 +137,31 @@ impl Default for WhisperLogMel {
 }
 
 #[derive(Debug)]
+pub struct MelBatch {
+    /// Row-major `[chunk_count, N_MELS, N_FRAMES]` features.
+    pub features: Vec<f32>,
+    /// Number of merged audio tokens retained from each padded chunk.
+    pub audio_feature_lengths: Vec<usize>,
+}
+
+impl MelBatch {
+    pub fn chunk_count(&self) -> usize {
+        self.audio_feature_lengths.len()
+    }
+
+    pub fn audio_token_count(&self) -> usize {
+        self.audio_feature_lengths.iter().sum()
+    }
+}
+
+#[derive(Debug)]
 pub struct AudioChunk {
     pub pcm: Vec<f32>,
     pub audio_token_length: usize,
 }
 
+/// Compatibility wrapper for older callers. Prefer
+/// [`WhisperLogMel::extract_audio`] to avoid retaining padded PCM chunks.
 pub fn chunk_audio(pcm: &[f32]) -> AppResult<Vec<AudioChunk>> {
     if pcm.is_empty() {
         return Err(AppError::Transcription("Audio is empty".into()));
@@ -110,10 +173,14 @@ pub fn chunk_audio(pcm: &[f32]) -> AppResult<Vec<AudioChunk>> {
             padded.resize(CHUNK_SAMPLES, 0.0);
             AudioChunk {
                 pcm: padded,
-                audio_token_length: (chunk.len() - 1) / (HOP_LENGTH * 2 * 4) + 1,
+                audio_token_length: audio_token_length(chunk.len()),
             }
         })
         .collect())
+}
+
+fn audio_token_length(sample_count: usize) -> usize {
+    sample_count.div_ceil(HOP_LENGTH * 2 * 4)
 }
 
 fn reflect_pad(input: &[f32], padding: usize) -> Vec<f32> {
@@ -181,6 +248,38 @@ mod tests {
         assert_eq!(chunks[0].audio_token_length, 375);
         assert_eq!(chunks[1].audio_token_length, 13);
         assert!(chunks.iter().all(|chunk| chunk.pcm.len() == CHUNK_SAMPLES));
+    }
+
+    #[test]
+    fn extracts_contiguous_chunks_with_tail_padding_and_token_lengths() {
+        let mut pcm = vec![0.0; CHUNK_SAMPLES + 16_001];
+        *pcm.last_mut().expect("fixture is non-empty") = 0.5;
+        let extractor = WhisperLogMel::new();
+        let batch = extractor
+            .extract_audio(&pcm)
+            .expect("batched mel extraction should succeed");
+
+        assert_eq!(batch.chunk_count(), 2);
+        assert_eq!(batch.features.len(), 2 * N_MELS * N_FRAMES);
+        assert_eq!(batch.audio_feature_lengths, vec![375, 13]);
+        assert_eq!(batch.audio_token_count(), 388);
+
+        let mut padded_tail = pcm[CHUNK_SAMPLES..].to_vec();
+        padded_tail.resize(CHUNK_SAMPLES, 0.0);
+        let expected_tail = extractor
+            .extract_chunk(&padded_tail)
+            .expect("explicitly padded tail should succeed");
+        assert_eq!(&batch.features[N_MELS * N_FRAMES..], expected_tail);
+    }
+
+    #[test]
+    fn exact_chunk_does_not_add_a_padding_chunk() {
+        let batch = WhisperLogMel::new()
+            .extract_audio(&vec![0.0; CHUNK_SAMPLES])
+            .expect("exact chunk should succeed");
+        assert_eq!(batch.chunk_count(), 1);
+        assert_eq!(batch.features.len(), N_MELS * N_FRAMES);
+        assert_eq!(batch.audio_feature_lengths, vec![375]);
     }
 
     #[test]

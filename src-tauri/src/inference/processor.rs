@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use tokenizers::Tokenizer;
+use tokenizers::{
+    decoders::DecoderWrapper, models::ModelWrapper, normalizers::NormalizerWrapper,
+    pre_tokenizers::PreTokenizerWrapper, processors::PostProcessorWrapper, DecodeStream, Tokenizer,
+};
 
 use crate::error::{AppError, AppResult};
 
@@ -16,6 +19,25 @@ const MARKER_INTERVAL_SECONDS: usize = 5;
 pub struct MossProcessor {
     tokenizer: Tokenizer,
     digit_token_ids: [u32; 10],
+}
+
+pub(crate) struct MossDecodeStream<'a> {
+    inner: DecodeStream<
+        'a,
+        ModelWrapper,
+        NormalizerWrapper,
+        PreTokenizerWrapper,
+        PostProcessorWrapper,
+        DecoderWrapper,
+    >,
+}
+
+impl MossDecodeStream<'_> {
+    pub(crate) fn step(&mut self, token: u32) -> AppResult<Option<String>> {
+        self.inner.step(token).map_err(|error| {
+            AppError::Transcription(format!("Token stream decode failed: {error}"))
+        })
+    }
 }
 
 impl MossProcessor {
@@ -66,6 +88,12 @@ impl MossProcessor {
             .map_err(|error| AppError::Transcription(format!("Token decode failed: {error}")))
     }
 
+    pub(crate) fn decode_stream(&self) -> MossDecodeStream<'_> {
+        MossDecodeStream {
+            inner: self.tokenizer.decode_stream(true),
+        }
+    }
+
     fn encode(&self, text: &str) -> AppResult<Vec<u32>> {
         self.tokenizer
             .encode(text, false)
@@ -102,6 +130,8 @@ impl MossProcessor {
 
 #[cfg(test)]
 mod tests {
+    use tokenizers::AddedToken;
+
     use super::*;
 
     #[test]
@@ -119,5 +149,24 @@ mod tests {
         );
         assert_eq!(span.len(), 386);
         assert_eq!(span[62], 20); // `5`
+    }
+
+    #[test]
+    fn decode_stream_preserves_context_between_tokens() {
+        let mut tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
+        tokenizer.add_tokens(&[
+            AddedToken::from("Hello", false),
+            AddedToken::from("world", false),
+        ]);
+        let hello = tokenizer.token_to_id("Hello").unwrap();
+        let world = tokenizer.token_to_id("world").unwrap();
+        let processor = MossProcessor {
+            tokenizer,
+            digit_token_ids: [0; 10],
+        };
+        let mut stream = processor.decode_stream();
+
+        assert_eq!(stream.step(hello).unwrap().as_deref(), Some("Hello"));
+        assert_eq!(stream.step(world).unwrap().as_deref(), Some(" world"));
     }
 }

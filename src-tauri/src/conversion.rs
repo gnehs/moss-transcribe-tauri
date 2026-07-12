@@ -64,6 +64,7 @@ mod tests {
         let mut event = TranscriptStreamEvent {
             task_id: "task-1".into(),
             text: "[0][S01]台风登陆[1]".into(),
+            segment_offset: 0,
             segments: vec![TranscriptSegment {
                 start: 0.0,
                 end: 1.0,
