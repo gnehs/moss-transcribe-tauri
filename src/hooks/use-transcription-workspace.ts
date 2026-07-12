@@ -50,6 +50,62 @@ const supportedExtensions = new Set(
   audioFilters.flatMap((filter) => filter.extensions.map((extension) => extension.toLowerCase())),
 );
 
+const taskDraftStorageKey = "moss-transcribe.task-draft-preferences";
+
+function createDefaultTaskDraft(): TaskDraft {
+  return {
+    ...defaultTaskDraft,
+    outputs: { ...defaultTaskDraft.outputs },
+  };
+}
+
+function readStoredTaskDraft(): TaskDraft {
+  const fallback = createDefaultTaskDraft();
+
+  try {
+    const stored = window.localStorage.getItem(taskDraftStorageKey);
+    if (!stored) return fallback;
+
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object") return fallback;
+
+    const preferences = parsed as Record<string, unknown>;
+    const outputs = preferences.outputs;
+    const storedOutputs = outputs && typeof outputs === "object"
+      ? outputs as Record<string, unknown>
+      : {};
+
+    return {
+      ...fallback,
+      outputDir: typeof preferences.outputDir === "string" ? preferences.outputDir : fallback.outputDir,
+      outputs: {
+        txt: typeof storedOutputs.txt === "boolean" ? storedOutputs.txt : fallback.outputs.txt,
+        json: typeof storedOutputs.json === "boolean" ? storedOutputs.json : fallback.outputs.json,
+        srt: typeof storedOutputs.srt === "boolean" ? storedOutputs.srt : fallback.outputs.srt,
+      },
+      prompt: typeof preferences.prompt === "string" ? preferences.prompt : fallback.prompt,
+      convertToTraditional: typeof preferences.convertToTraditional === "boolean"
+        ? preferences.convertToTraditional
+        : fallback.convertToTraditional,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveTaskDraftPreferences(taskDraft: TaskDraft) {
+  try {
+    window.localStorage.setItem(taskDraftStorageKey, JSON.stringify({
+      outputDir: taskDraft.outputDir,
+      outputs: taskDraft.outputs,
+      prompt: taskDraft.prompt,
+      convertToTraditional: taskDraft.convertToTraditional,
+    }));
+  } catch {
+    // Storage can be unavailable or full; task creation should still work in memory.
+  }
+}
+
 function createTaskId() {
   return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
@@ -89,7 +145,7 @@ function systemFallback(): SystemInfo {
 
 export function useTranscriptionWorkspace() {
   const [tasks, setTasks] = useState<TranscriptionTask[]>([]);
-  const [taskDraft, setTaskDraft] = useState<TaskDraft>(defaultTaskDraft);
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(readStoredTaskDraft);
   const [model, setModel] = useState<ModelStatus>(modelFallback);
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus>({ available: false });
   const [system, setSystem] = useState<SystemInfo>(systemFallback);
@@ -102,6 +158,10 @@ export function useTranscriptionWorkspace() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const runningTaskIdRef = useRef<string | null>(null);
   const openTaskDialogRef = useRef<(paths: string[]) => void>(() => {});
+
+  useEffect(() => {
+    saveTaskDraftPreferences(taskDraft);
+  }, [taskDraft.convertToTraditional, taskDraft.outputDir, taskDraft.outputs, taskDraft.prompt]);
 
   const refreshRuntime = useCallback(async () => {
     const [nextModel, nextFfmpeg, nextSystem] = await Promise.allSettled([
