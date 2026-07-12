@@ -33,7 +33,7 @@ function App() {
   return (
     <TooltipProvider>
       <main className="min-h-screen bg-background">
-        <Toaster richColors closeButton position="top-right" />
+        <Toaster richColors closeButton position="bottom-right" />
         <section className="flex h-screen min-h-0 flex-col overflow-hidden bg-background">
           {shouldShowDragOverlay ? (
             <div
