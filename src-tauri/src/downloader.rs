@@ -33,7 +33,11 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
         .ok_or_else(|| AppError::Model("Invalid Hugging Face repository".into()))?;
     let repo = client.model(owner, name);
     let total_files = MODEL_FILES.len();
-    let remote_file_sizes = if force || MODEL_FILES.iter().any(|file| !model_dir.join(file).is_file()) {
+    let remote_file_sizes = if force
+        || MODEL_FILES
+            .iter()
+            .any(|file| !model_dir.join(file).is_file())
+    {
         fetch_remote_file_sizes(&repo)?
     } else {
         HashMap::new()
