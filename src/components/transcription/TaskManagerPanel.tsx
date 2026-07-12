@@ -20,7 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { basename, formatDuration, formatElapsedClock, formatTimestamp } from "@/lib/format";
 import type { TaskDraft, TaskStatus, TimedTaskStage, TranscriptionTask } from "@/types/transcription";
 
@@ -71,6 +71,22 @@ function taskEtaMs(task: TranscriptionTask, now: number) {
 
   const tokensPerMs = generatedTokens / generatingElapsedMs;
   return Math.max(0, estimatedTokens - generatedTokens) / tokensPerMs;
+}
+
+function formatSrtTimestamp(seconds: number) {
+  const totalMs = Math.round(Math.max(0, seconds) * 1000);
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+  const remainingSeconds = Math.floor((totalMs % 60_000) / 1_000);
+  const milliseconds = totalMs % 1_000;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")},${milliseconds.toString().padStart(3, "0")}`;
+}
+
+function renderSrtPreview(task: TranscriptionTask) {
+  const segments = task.result?.segments ?? [];
+  return segments
+    .map((segment, index) => `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(segment.end)}\n[${segment.speaker}] ${segment.text}\n`)
+    .join("\n");
 }
 
 function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
@@ -131,11 +147,11 @@ export function TaskManagerPanel({
                   <TableCell className="task-progress-cell">
 
                     <div className="mb-1.5 flex flex-wrap justify-between gap-1 items-center tabular-nums">
-                      <div>
-                        {`${task.percent.toFixed(0)}%`}
-                      </div>
                       <div className="flex items-center gap-1 opacity-50">
                         <TaskEtaBadge task={task} now={now} />
+                      </div>
+                      <div>
+                        {`${task.percent.toFixed(0)}%`}
                       </div>
                     </div>
                     <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
@@ -186,6 +202,7 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
   const result = task?.result;
   const elapsedMs = task ? taskElapsedMs(task, now) : null;
   const audioDurationMs = task?.progress?.audioDurationMs ?? (result ? result.audioDurationMs : null);
+  const hasSrtOutput = Boolean(task?.options.outputs.srt || result?.outputs.srtPath);
 
   return (
     <Sheet open={Boolean(task)} onOpenChange={onOpenChange}>
@@ -197,39 +214,78 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
         <Separator />
         {task ? (
           <ScrollArea className="task-detail-content" viewportClassName="scroll-fade">
-            <div className="task-result-stack">
-              <div className="flex items-center justify-between gap-2">
+            <div className="task-detail-stack">
+              <div className="task-detail-overview">
                 <Badge variant={result?.truncated ? "destructive" : statusVariant(task.status)}>{result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge>
-                <div className="flex flex-wrap justify-end gap-1 items-center tabular-nums">
-                  <Clock3Icon data-icon="inline-start" className="size-4" /><Trans>已用 {formatDuration(elapsedMs)}</Trans>
-                  <TaskEtaBadge task={task} now={now} />
+                <div className="task-detail-overview-progress">
+                  <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
+                  <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                    <span>{task.percent.toFixed(0)}%</span>
+                    <span className="truncate">{task.message ?? ""}</span>
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
-                <div className="flex justify-between gap-3 text-xs text-muted-foreground">
-                  <span>{task.percent.toFixed(0)}%</span>
-                  <span className="truncate">{task.message ?? ""}</span>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="font-medium"><Trans>階段耗時</Trans></div>
-                <Table>
-                  <TableHeader><TableRow><TableHead><Trans>階段</Trans></TableHead><TableHead><Trans>進度範圍</Trans></TableHead><TableHead className="text-right"><Trans>耗時</Trans></TableHead></TableRow></TableHeader>
-                  <TableBody>{stageProgressRanges.map(({ stage, range }) => (
-                    <TableRow key={stage}>
-                      <TableCell><StatusLabel status={stage} /></TableCell>
-                      <TableCell className="font-mono">{range}</TableCell>
-                      <TableCell className="text-right font-mono">{formatElapsedClock(taskStageElapsedMs(task, stage, now))}</TableCell>
-                    </TableRow>
-                  ))}</TableBody>
-                </Table>
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-sm">
-                <div><div className="text-muted-foreground"><Trans>音訊長度</Trans></div><div>{audioDurationMs == null ? "—" : formatDuration(audioDurationMs)}</div></div>
-                <div><div className="text-muted-foreground">Prompt tokens</div><div className="font-mono">{task.progress?.promptTokens ?? result?.promptTokens ?? 0}</div></div>
-                <div><div className="text-muted-foreground">Generated tokens</div><div className="font-mono">{task.progress?.generatedTokens ?? result?.generatedTokens ?? 0}</div></div>
-              </div>
+              <Tabs key={task.id} defaultValue="statistics" className="task-detail-tabs">
+                <TabsList variant="line" className="task-detail-tabs-list">
+                  <TabsTrigger value="statistics"><Trans>統計資訊</Trans></TabsTrigger>
+                  <TabsTrigger value="transcript"><Trans>逐字稿</Trans></TabsTrigger>
+                  {hasSrtOutput ? <TabsTrigger value="subtitle"><Trans>字幕</Trans></TabsTrigger> : null}
+                </TabsList>
+                <TabsContent value="statistics" className="task-detail-tab-content">
+                  <div className="task-detail-stat-grid text-sm">
+                    <div><div className="text-muted-foreground"><Trans>任務耗時</Trans></div><div className="flex flex-wrap items-center gap-1 tabular-nums"><Clock3Icon className="size-4" />{formatDuration(elapsedMs)}<TaskEtaBadge task={task} now={now} /></div></div>
+                    <div><div className="text-muted-foreground"><Trans>音訊長度</Trans></div><div>{audioDurationMs == null ? "—" : formatDuration(audioDurationMs)}</div></div>
+                    <div><div className="text-muted-foreground">Prompt tokens</div><div className="font-mono">{task.progress?.promptTokens ?? result?.promptTokens ?? 0}</div></div>
+                    <div><div className="text-muted-foreground">Generated tokens</div><div className="font-mono">{task.progress?.generatedTokens ?? result?.generatedTokens ?? 0}</div></div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="font-medium"><Trans>階段耗時</Trans></div>
+                    <Table>
+                      <TableHeader><TableRow><TableHead><Trans>階段</Trans></TableHead><TableHead><Trans>進度範圍</Trans></TableHead><TableHead className="text-right"><Trans>耗時</Trans></TableHead></TableRow></TableHeader>
+                      <TableBody>{stageProgressRanges.map(({ stage, range }) => (
+                        <TableRow key={stage}>
+                          <TableCell><StatusLabel status={stage} /></TableCell>
+                          <TableCell className="font-mono">{range}</TableCell>
+                          <TableCell className="text-right font-mono">{formatElapsedClock(taskStageElapsedMs(task, stage, now))}</TableCell>
+                        </TableRow>
+                      ))}</TableBody>
+                    </Table>
+                  </div>
+                  {result ? (
+                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground"><Trans>輸出檔案</Trans></div>
+                      <span>TXT: {result.outputs.txtPath ?? <Trans>未輸出</Trans>}</span>
+                      <span>JSON: {result.outputs.jsonPath ?? <Trans>未輸出</Trans>}</span>
+                      <span>SRT: {result.outputs.srtPath ?? <Trans>未輸出</Trans>}</span>
+                    </div>
+                  ) : null}
+                </TabsContent>
+                <TabsContent value="transcript" className="task-detail-tab-content">
+                  {result ? (
+                    result.segments.length > 0 ? (
+                      <Table>
+                        <TableHeader><TableRow><TableHead><Trans>時間</Trans></TableHead><TableHead><Trans>說話者</Trans></TableHead><TableHead><Trans>文字</Trans></TableHead></TableRow></TableHeader>
+                        <TableBody>
+                          {result.segments.map((segment, index) => (
+                            <TableRow key={`${segment.start}-${index}`}>
+                              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatTimestamp(segment.start * 1000)} – {formatTimestamp(segment.end * 1000)}</TableCell>
+                              <TableCell className="whitespace-nowrap font-mono text-xs">{segment.speaker}</TableCell>
+                              <TableCell className="whitespace-pre-wrap">{segment.text}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : <p className="task-transcript-text">{result.text || <Trans>沒有逐字稿內容</Trans>}</p>
+                  ) : <p className="text-sm text-muted-foreground"><Trans>任務完成後會顯示逐字稿。</Trans></p>}
+                </TabsContent>
+                {hasSrtOutput ? (
+                  <TabsContent value="subtitle" className="task-detail-tab-content">
+                    {result ? (
+                      <pre className="srt-preview-text font-mono text-xs">{renderSrtPreview(task) || <Trans>沒有可用的字幕內容</Trans>}</pre>
+                    ) : <p className="text-sm text-muted-foreground"><Trans>任務完成後會顯示字幕。</Trans></p>}
+                  </TabsContent>
+                ) : null}
+              </Tabs>
               {task.error ? <p className="text-sm text-destructive">{task.error}</p> : null}
               {result?.truncated ? (
                 <Alert variant="destructive">
@@ -242,28 +298,6 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
                 <Button variant="outline" onClick={() => onRetryTask(task.id)}>
                   <RotateCcwIcon data-icon="inline-start" /><Trans>重新執行</Trans>
                 </Button>
-              ) : null}
-              {result ? (
-                <>
-                  <Textarea readOnly value={result.text} className="min-h-36 resize-none" />
-                  <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                    <span>TXT: {result.outputs.txtPath ?? <Trans>未輸出</Trans>}</span>
-                    <span>JSON: {result.outputs.jsonPath ?? <Trans>未輸出</Trans>}</span>
-                    <span>SRT: {result.outputs.srtPath ?? <Trans>未輸出</Trans>}</span>
-                  </div>
-                  <Table>
-                    <TableHeader><TableRow><TableHead><Trans>時間</Trans></TableHead><TableHead><Trans>說話者</Trans></TableHead><TableHead><Trans>文字</Trans></TableHead></TableRow></TableHeader>
-                    <TableBody>
-                      {result.segments.map((segment, index) => (
-                        <TableRow key={`${segment.start}-${index}`}>
-                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatTimestamp(segment.start * 1000)} – {formatTimestamp(segment.end * 1000)}</TableCell>
-                          <TableCell className="whitespace-nowrap font-mono text-xs">{segment.speaker}</TableCell>
-                          <TableCell className="whitespace-pre-wrap">{segment.text}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </>
               ) : null}
             </div>
           </ScrollArea>
