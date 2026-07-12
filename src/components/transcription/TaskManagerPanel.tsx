@@ -632,19 +632,29 @@ export function TaskManagerPanel({
                     </InputGroup>
                   </Field>
                 </FieldGroup>
-                <div className="scroll-fade h-40 max-w-full min-w-0 overflow-y-auto rounded-lg border">
-                  {taskDraft.inputPaths.map((path) => (
-                    <div
-                      key={path}
-                      className="flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden border-b px-2.5 py-2 text-sm last:border-b-0"
-                    >
-                      <FileAudioIcon className="text-muted-foreground shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {basename(path)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <ScrollArea className="h-40 w-full min-w-0 rounded-lg border">
+                  <div className="flex min-h-full min-w-0 flex-col">
+                    {taskDraft.inputPaths.map((path) => (
+                      <div
+                        key={path}
+                        className="flex min-w-0 items-center gap-2 overflow-hidden border-b px-2.5 py-2 text-sm last:border-b-0"
+                      >
+                        <FileAudioIcon className="size-4 shrink-0 text-muted-foreground" />
+                        <span
+                          className="min-w-0 flex-1 truncate"
+                          title={basename(path)}
+                        >
+                          {basename(path)}
+                        </span>
+                      </div>
+                    ))}
+                    {taskDraft.inputPaths.length === 0 ? (
+                      <div className="text-muted-foreground px-3 py-2 text-sm">
+                        <Trans>尚未新增檔案</Trans>
+                      </div>
+                    ) : null}
+                  </div>
+                </ScrollArea>
               </div>
               <DialogFooter>
                 <Button
