@@ -75,6 +75,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CircleIndicator } from "@/components/transcription/CircleIndicator";
+import { SupportBanner } from "@/components/transcription/SupportBanner";
 import {
   basename,
   formatDuration,
@@ -312,6 +313,7 @@ export function TaskManagerPanel({
   isConfirmingTasks,
   downloadProgress,
   selectedTaskId,
+  showCoffeeBanner,
   onPickFiles,
   onPickOutputDir,
   onTaskDraftChange,
@@ -328,6 +330,7 @@ export function TaskManagerPanel({
   isConfirmingTasks: boolean;
   downloadProgress: DownloadProgress | null;
   selectedTaskId: string | null;
+  showCoffeeBanner: boolean;
   onPickFiles: () => void;
   onPickOutputDir: () => void;
   onTaskDraftChange: Dispatch<SetStateAction<TaskDraft>>;
@@ -340,6 +343,7 @@ export function TaskManagerPanel({
   const { i18n } = useLingui();
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const [now, setNow] = useState(Date.now());
+  const [isCoffeeBannerDismissed, setCoffeeBannerDismissed] = useState(false);
   const hasActiveTasks = tasks.some((task) =>
     ["preparing", "encoding", "prefilling", "generating"].includes(task.status)
   );
@@ -519,6 +523,9 @@ export function TaskManagerPanel({
                   </Button>
                 </EmptyContent>
               </div>
+              {showCoffeeBanner && !isCoffeeBannerDismissed ? (
+                <SupportBanner onClose={() => setCoffeeBannerDismissed(true)} />
+              ) : null}
               <p className="text-muted-foreground m-0 text-center text-sm/relaxed">
                 wav、mp3、m4a、aac、flac、ogg、mp4、mov、mkv、webm
               </p>

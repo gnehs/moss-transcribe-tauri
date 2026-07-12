@@ -167,6 +167,7 @@ function MainWindow() {
               isTaskDialogOpen={workspace.isTaskDialogOpen}
               isDraggingFiles={workspace.isDraggingFiles}
               selectedTaskId={workspace.selectedTaskId}
+              showCoffeeBanner={workspace.showCoffeeBanner}
               onPickFiles={workspace.pickFilesForTasks}
               onPickOutputDir={workspace.pickTaskOutputDir}
               onTaskDraftChange={workspace.setTaskDraft}

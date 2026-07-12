@@ -71,6 +71,9 @@ const supportedExtensions = new Set(
 );
 
 const taskDraftStorageKey = "moss-transcribe.task-draft-preferences";
+const completedTranscriptionCountStorageKey =
+  "moss-transcribe.completed-transcription-count";
+const coffeeBannerThreshold = 10;
 
 function createDefaultTaskDraft(): TaskDraft {
   return {
@@ -146,6 +149,29 @@ function saveTaskDraftPreferences(taskDraft: TaskDraft) {
   }
 }
 
+function readCompletedTranscriptionCount() {
+  try {
+    const stored = Number.parseInt(
+      window.localStorage.getItem(completedTranscriptionCountStorageKey) ?? "",
+      10
+    );
+    return Number.isSafeInteger(stored) ? Math.max(0, stored) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveCompletedTranscriptionCount(count: number) {
+  try {
+    window.localStorage.setItem(
+      completedTranscriptionCountStorageKey,
+      String(count)
+    );
+  } catch {
+    // Storage can be unavailable or full; transcription should still work.
+  }
+}
+
 function createTaskId() {
   return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
@@ -214,6 +240,10 @@ export function useTranscriptionWorkspace() {
   const [isConfirmingTasks, setIsConfirmingTasks] = useState(false);
   const [deletingModel, setDeletingModel] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [completedTranscriptionCount, setCompletedTranscriptionCount] =
+    useState(readCompletedTranscriptionCount);
+  const completedTranscriptionCountRef = useRef(completedTranscriptionCount);
+  const countedTaskIdsRef = useRef(new Set<string>());
   const runningTaskIdRef = useRef<string | null>(null);
   const openTaskDialogRef = useRef<(paths: string[]) => void>(() => {});
 
@@ -322,6 +352,15 @@ export function useTranscriptionWorkspace() {
             : item
         )
       );
+      if (!countedTaskIdsRef.current.has(task.id)) {
+        countedTaskIdsRef.current.add(task.id);
+        const nextCompletedTranscriptionCount =
+          completedTranscriptionCountRef.current + 1;
+        completedTranscriptionCountRef.current =
+          nextCompletedTranscriptionCount;
+        setCompletedTranscriptionCount(nextCompletedTranscriptionCount);
+        saveCompletedTranscriptionCount(nextCompletedTranscriptionCount);
+      }
       if (result.truncated) {
         toast.warning(i18n._(msg`結果不完整`), {
           description: i18n._(
@@ -591,6 +630,7 @@ export function useTranscriptionWorkspace() {
     isConfirmingTasks,
     deletingModel,
     selectedTaskId,
+    showCoffeeBanner: completedTranscriptionCount > coffeeBannerThreshold,
     setTaskDraft,
     setTaskDialogOpen,
     setSelectedTaskId,
