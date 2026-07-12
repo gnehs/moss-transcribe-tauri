@@ -576,7 +576,6 @@ export function TaskManagerPanel({
                 </InputGroup>
               </Field>
             </FieldGroup>
-            <Separator />
             <div className="scroll-fade h-40 max-w-full min-w-0 overflow-y-auto rounded-lg border">
               {taskDraft.inputPaths.map((path) => (
                 <div
