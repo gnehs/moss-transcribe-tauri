@@ -5,12 +5,12 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
-import { Toaster } from "sonner";
 
 import { AppToolbar } from "@/components/app/AppToolbar";
 import { SettingsPanel } from "@/components/transcription/SettingsPanel";
 import { TaskManagerPanel } from "@/components/transcription/TaskManagerPanel";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import {
   Sheet,
   SheetContent,

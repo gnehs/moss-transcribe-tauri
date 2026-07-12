@@ -1,6 +1,7 @@
 import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
+import { useTheme } from "next-themes";
 import {
   DownloadIcon,
   EllipsisIcon,
@@ -70,6 +71,12 @@ type SettingsPanelProps = {
   onRevealModel: () => void;
   onRefreshFfmpeg: () => void;
 };
+
+type Theme = "system" | "light" | "dark";
+
+function isTheme(value: string | null | undefined): value is Theme {
+  return value === "system" || value === "light" || value === "dark";
+}
 
 function SettingsSection({
   title,
@@ -237,9 +244,11 @@ export function SettingsPanel({
   onRefreshFfmpeg,
 }: SettingsPanelProps) {
   const [isChangingLocale, setIsChangingLocale] = useState(false);
+  const { setTheme, theme } = useTheme();
   const activeLocale = (
     i18n.locale in locales ? i18n.locale : "zh-Hant"
   ) as Locale;
+  const activeTheme = isTheme(theme) ? theme : "system";
 
   async function changeLocale(value: string | null) {
     if (!value || value === activeLocale) return;
@@ -254,7 +263,7 @@ export function SettingsPanel({
   return (
     <div className="flex min-h-0 flex-col gap-6">
       <SettingsSection
-        title={<Trans>介面語言</Trans>}
+        title={<Trans>介面</Trans>}
         description={<Trans>立即套用並記住偏好設定。</Trans>}
       >
         <FieldGroup>
@@ -282,6 +291,47 @@ export function SettingsPanel({
             </Select>
             <FieldDescription>
               <Trans>變更後會立即套用。</Trans>
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="interface-theme">
+              <Trans>主題</Trans>
+            </FieldLabel>
+            <Select
+              value={activeTheme}
+              onValueChange={(value) => {
+                if (isTheme(value)) {
+                  setTheme(value);
+                }
+              }}
+            >
+              <SelectTrigger id="interface-theme" className="w-full">
+                <SelectValue>
+                  {activeTheme === "system" ? (
+                    <Trans>跟隨系統</Trans>
+                  ) : activeTheme === "light" ? (
+                    <Trans>亮色</Trans>
+                  ) : (
+                    <Trans>暗色</Trans>
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value="system">
+                    <Trans>跟隨系統</Trans>
+                  </SelectItem>
+                  <SelectItem value="light">
+                    <Trans>亮色</Trans>
+                  </SelectItem>
+                  <SelectItem value="dark">
+                    <Trans>暗色</Trans>
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              <Trans>跟隨系統偏好，或固定使用亮色／暗色。</Trans>
             </FieldDescription>
           </Field>
         </FieldGroup>

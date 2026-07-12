@@ -3,6 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const themeStorageKey = "moss-transcribe.theme";
+
+        try {
+          const storedTheme = window.localStorage.getItem(themeStorageKey);
+          const prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
+          const followsSystem =
+            storedTheme === null || storedTheme === "system";
+          const isDark =
+            storedTheme === "dark" ||
+            (followsSystem && prefersDark);
+
+          document.documentElement.classList.toggle("dark", isDark);
+          document.documentElement.style.colorScheme = isDark
+            ? "dark"
+            : "light";
+        } catch {
+          // Fall back to the light theme if storage or media-query access fails.
+        }
+      })();
+    </script>
     <title>MOSS Transcribe Studio</title>
   </head>
 
