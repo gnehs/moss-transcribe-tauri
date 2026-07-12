@@ -91,6 +91,15 @@ pub struct ProgressEvent {
     pub estimated_generated_tokens: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptStreamEvent {
+    pub task_id: String,
+    pub text: String,
+    pub segments: Vec<TranscriptSegment>,
+    pub generated_tokens: usize,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscribeOptions {

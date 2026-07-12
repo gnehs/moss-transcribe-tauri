@@ -81,6 +81,13 @@ export type TranscriptionProgress = {
   estimatedGeneratedTokens: number;
 };
 
+export type TranscriptStreamEvent = {
+  taskId: TaskId;
+  text: string;
+  segments: TranscriptSegment[];
+  generatedTokens: number;
+};
+
 export type DownloadProgress = {
   modelId: string;
   state: string;
@@ -113,6 +120,7 @@ export type TranscriptionTask = TaskSummary & {
   options: TaskOptions;
   progress: TranscriptionProgress | null;
   result: TranscriptionResult | null;
+  stream: TranscriptStreamEvent | null;
   error: string | null;
   startedAt: number | null;
   completedAt: number | null;

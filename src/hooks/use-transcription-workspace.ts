@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { msg } from "@lingui/core/macro";
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -20,6 +20,7 @@ import type {
   TimedTaskStage,
   TranscriptionProgress,
   TranscriptionResult,
+  TranscriptStreamEvent,
   TranscriptionTask,
 } from "@/types/transcription";
 
@@ -198,10 +199,21 @@ export function useTranscriptionWorkspace() {
       stageTimings: {},
       error: null,
       result: null,
+      stream: null,
       progress: null,
     } : item));
     try {
+      const onStream = new Channel<TranscriptStreamEvent>();
+      onStream.onmessage = (partial) => {
+        if (partial.taskId !== task.id) return;
+        setTasks((current) => current.map((item) => item.id === task.id ? {
+          ...item,
+          stream: partial,
+          updatedAt: new Date().toISOString(),
+        } : item));
+      };
       const result = await invoke<TranscriptionResult>("transcribe_file", {
+        onStream,
         request: {
           taskId: task.id,
           audioPath: task.inputPath,
@@ -225,6 +237,7 @@ export function useTranscriptionWorkspace() {
         percent: 100,
         progress: null,
         result,
+        stream: null,
         completedAt,
         updatedAt: new Date().toISOString(),
       } : item));
@@ -322,7 +335,7 @@ export function useTranscriptionWorkspace() {
           outputDir: taskDraft.outputDir, outputs: taskDraft.outputs,
           prompt: taskDraft.prompt.trim() || null,
           convertToTraditional: taskDraft.convertToTraditional,
-        }, progress: null, result: null, error: null, startedAt: null, completedAt: null,
+        }, progress: null, result: null, stream: null, error: null, startedAt: null, completedAt: null,
         stageStartedAt: null, stageTimings: {},
       }));
       setTasks((current) => [...current, ...nextTasks]);
@@ -378,7 +391,7 @@ export function useTranscriptionWorkspace() {
 
   function retryTask(taskId: string) {
     setTasks((current) => current.map((task) => task.id === taskId ? {
-      ...task, status: "queued", percent: 0, error: null, progress: null, result: null,
+      ...task, status: "queued", percent: 0, error: null, progress: null, result: null, stream: null,
       startedAt: null, completedAt: null, stageStartedAt: null, stageTimings: {},
     } : task));
   }

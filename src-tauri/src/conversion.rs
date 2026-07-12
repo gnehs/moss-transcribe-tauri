@@ -2,21 +2,33 @@ use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 
 use crate::{
     error::{AppError, AppResult},
-    models::TranscriptResult,
+    models::{TranscriptResult, TranscriptStreamEvent},
 };
 
-/// Convert transcript text to Taiwan Traditional Chinese, including common
-/// Taiwan vocabulary such as `服务器` -> `伺服器`.
-pub fn simplified_to_traditional(result: &mut TranscriptResult) -> AppResult<()> {
-    let converter = OpenCC::from_config(BuiltinConfig::S2twp)
-        .map_err(|error| AppError::Transcription(format!("Could not load OpenCC: {error}")))?;
+pub struct TraditionalConverter {
+    converter: OpenCC,
+}
 
-    result.text = converter.convert(&result.text);
-    for segment in &mut result.segments {
-        segment.text = converter.convert(&segment.text);
+impl TraditionalConverter {
+    pub fn new() -> AppResult<Self> {
+        let converter = OpenCC::from_config(BuiltinConfig::S2twp)
+            .map_err(|error| AppError::Transcription(format!("Could not load OpenCC: {error}")))?;
+        Ok(Self { converter })
     }
 
-    Ok(())
+    pub fn convert_result(&self, result: &mut TranscriptResult) {
+        result.text = self.converter.convert(&result.text);
+        for segment in &mut result.segments {
+            segment.text = self.converter.convert(&segment.text);
+        }
+    }
+
+    pub fn convert_stream(&self, event: &mut TranscriptStreamEvent) {
+        event.text = self.converter.convert(&event.text);
+        for segment in &mut event.segments {
+            segment.text = self.converter.convert(&segment.text);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -39,9 +51,33 @@ mod tests {
             truncated: false,
         };
 
-        simplified_to_traditional(&mut result).expect("OpenCC should initialize");
+        TraditionalConverter::new()
+            .expect("OpenCC should initialize")
+            .convert_result(&mut result);
 
         assert_eq!(result.text, "[0][S01]開放中文轉換和伺服器[1]");
         assert_eq!(result.segments[0].text, "開放中文轉換和伺服器");
+    }
+
+    #[test]
+    fn converts_stream_text_and_segments_to_taiwan_traditional() {
+        let mut event = TranscriptStreamEvent {
+            task_id: "task-1".into(),
+            text: "[0][S01]台风登陆[1]".into(),
+            segments: vec![TranscriptSegment {
+                start: 0.0,
+                end: 1.0,
+                speaker: "S01".into(),
+                text: "台风登陆".into(),
+            }],
+            generated_tokens: 8,
+        };
+
+        TraditionalConverter::new()
+            .expect("OpenCC should initialize")
+            .convert_stream(&mut event);
+
+        assert_eq!(event.text, "[0][S01]颱風登陸[1]");
+        assert_eq!(event.segments[0].text, "颱風登陸");
     }
 }

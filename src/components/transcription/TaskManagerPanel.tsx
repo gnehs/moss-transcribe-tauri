@@ -1,5 +1,5 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
@@ -629,6 +629,9 @@ function TaskDetailSheet({
 }) {
   const { i18n } = useLingui();
   const result = task?.result;
+  const transcript = result ?? task?.stream;
+  const [activeTab, setActiveTab] = useState("statistics");
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
   const elapsedMs = task ? taskElapsedMs(task, now) : null;
   const audioDurationMs =
     task?.progress?.audioDurationMs ?? (result ? result.audioDurationMs : null);
@@ -637,6 +640,16 @@ function TaskDetailSheet({
         .filter(([, enabled]) => enabled)
         .map(([format]) => format.toUpperCase())
     : [];
+
+  useEffect(() => {
+    setActiveTab("statistics");
+  }, [task?.id]);
+
+  useLayoutEffect(() => {
+    if (activeTab !== "transcript") return;
+    const viewport = scrollViewportRef.current;
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+  }, [activeTab, task?.id, task?.stream?.generatedTokens]);
 
   return (
     <Sheet open={Boolean(task)} onOpenChange={onOpenChange}>
@@ -647,7 +660,8 @@ function TaskDetailSheet({
         {task ? (
           <Tabs
             key={task.id}
-            defaultValue="statistics"
+            value={activeTab}
+            onValueChange={setActiveTab}
             className="min-h-0 min-w-0 flex-1 gap-0"
           >
             <SheetHeader className="gap-3 bg-foreground/[0.03] px-6 pb-4 pt-5 pr-12 max-[720px]:px-4">
@@ -698,6 +712,7 @@ function TaskDetailSheet({
             <ScrollArea
               className="min-h-0 flex-1 overflow-hidden px-6 pb-6 pt-5 max-[720px]:px-4"
               viewportClassName="scroll-fade"
+              viewportRef={scrollViewportRef}
             >
               <div className="flex min-w-0 flex-col gap-5">
                 <div className="flex min-w-0 flex-col gap-3 pb-4">
@@ -841,8 +856,8 @@ function TaskDetailSheet({
                   value="transcript"
                   className="flex min-w-0 flex-col gap-5 text-sm outline-none"
                 >
-                  {result ? (
-                    result.segments.length > 0 ? (
+                  {transcript ? (
+                    transcript.segments.length > 0 ? (
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -858,7 +873,7 @@ function TaskDetailSheet({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {result.segments.map((segment, index) => (
+                          {transcript.segments.map((segment, index) => (
                             <TableRow key={`${segment.start}-${index}`}>
                               <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                                 {formatTimestamp(segment.start * 1000)} –{" "}
@@ -876,12 +891,12 @@ function TaskDetailSheet({
                       </Table>
                     ) : (
                       <p className="m-0 whitespace-pre-wrap break-words leading-relaxed">
-                        {result.text || <Trans>沒有逐字稿內容</Trans>}
+                        {transcript.text || <Trans>沒有逐字稿內容</Trans>}
                       </p>
                     )
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      <Trans>任務完成後會顯示逐字稿。</Trans>
+                      <Trans>逐字稿會在模型生成時顯示。</Trans>
                     </p>
                   )}
                 </TabsContent>

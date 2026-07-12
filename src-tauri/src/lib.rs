@@ -23,10 +23,11 @@ pub use inference::MossTranscriber;
 #[cfg(feature = "parity-trace")]
 pub use inference::{generate_native_parity_trace, NativeParityTrace};
 use models::{
-    FfmpegStatus, ModelStatus, RuntimeInfo, TaskStage, TranscribeFileRequest, TranscriptionResponse,
+    FfmpegStatus, ModelStatus, RuntimeInfo, TaskStage, TranscribeFileRequest,
+    TranscriptStreamEvent, TranscriptionResponse,
 };
 pub use models::{ProgressEvent, TranscribeOptions, TranscriptResult, TranscriptSegment};
-use tauri::{AppHandle, Emitter, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{ipc::Channel, AppHandle, Emitter, State, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(target_os = "macos")]
 use tauri::{LogicalPosition, TitleBarStyle};
@@ -154,12 +155,13 @@ async fn transcribe_file(
     app: AppHandle,
     state: State<'_, InferenceState>,
     request: TranscribeFileRequest,
+    on_stream: Channel<TranscriptStreamEvent>,
 ) -> AppResult<TranscriptionResponse> {
     validate_request(&request)?;
     let transcriber = state.inner().transcriber.clone();
     let operation = state.inner().model_operation.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        run_transcription(app, transcriber, operation, request)
+        run_transcription(app, transcriber, operation, request, on_stream)
     })
     .await
     .map_err(|error| AppError::Transcription(error.to_string()))?
@@ -170,6 +172,7 @@ fn run_transcription(
     state: Arc<Mutex<Option<MossTranscriber>>>,
     operation: Arc<Mutex<()>>,
     request: TranscribeFileRequest,
+    on_stream: Channel<TranscriptStreamEvent>,
 ) -> AppResult<TranscriptionResponse> {
     let started = Instant::now();
     let emit = |stage, percent, message: String, duration, prompt_tokens, generated_tokens| {
@@ -232,19 +235,35 @@ fn run_transcription(
                 .as_mut()
                 .ok_or_else(|| AppError::Transcription("MOSS model could not be loaded".into()))?;
             let task_id = request.task_id.clone();
-            let mut transcript =
-                transcriber.transcribe(&decoded.pcm, &request.options, |mut progress| {
+            let stream_task_id = request.task_id.clone();
+            let traditional_converter = request
+                .options
+                .convert_to_traditional
+                .then(conversion::TraditionalConverter::new)
+                .transpose()?;
+            let mut transcript = transcriber.transcribe(
+                &decoded.pcm,
+                &request.options,
+                |mut progress| {
                     progress.task_id.clone_from(&task_id);
                     progress.elapsed_ms = started.elapsed().as_millis() as u64;
                     progress.audio_duration_ms = duration;
                     let _ = app.emit("transcription-progress", progress);
-                })?;
+                },
+                |mut partial| {
+                    partial.task_id.clone_from(&stream_task_id);
+                    if let Some(converter) = &traditional_converter {
+                        converter.convert_stream(&mut partial);
+                    }
+                    let _ = on_stream.send(partial);
+                },
+            )?;
             if let Err(error) = inference::log_mlx_memory("after inference") {
                 eprintln!("{error}");
             }
 
-            if request.options.convert_to_traditional {
-                conversion::simplified_to_traditional(&mut transcript)?;
+            if let Some(converter) = traditional_converter {
+                converter.convert_result(&mut transcript);
             }
 
             let outputs = export::export_result(&audio_path, &request.export, &transcript)?;

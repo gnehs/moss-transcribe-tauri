@@ -12,7 +12,9 @@ use mlx_rs::{memory, Stream};
 
 use crate::{
     error::{AppError, AppResult},
-    models::{ProgressEvent, TaskStage, TranscribeOptions, TranscriptResult},
+    models::{
+        ProgressEvent, TaskStage, TranscribeOptions, TranscriptResult, TranscriptStreamEvent,
+    },
 };
 
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
@@ -29,6 +31,7 @@ use processor::{EOS_TOKEN_ID, PAD_TOKEN_ID};
 
 const LONG_AUDIO_MAX_NEW_TOKENS: usize = 65_536;
 const ESTIMATED_OUTPUT_TOKEN_OVERHEAD: usize = 128;
+const STREAM_DECODE_INTERVAL_TOKENS: usize = 8;
 #[cfg(all(feature = "mlx", target_os = "macos", target_arch = "aarch64"))]
 const MLX_CACHE_LIMIT_BYTES: usize = 1024 * 1024 * 1024;
 
@@ -202,6 +205,7 @@ impl MossTranscriber {
         pcm: &[f32],
         options: &TranscribeOptions,
         progress: impl Fn(ProgressEvent),
+        stream: impl Fn(TranscriptStreamEvent),
     ) -> AppResult<TranscriptResult> {
         if options
             .max_new_tokens
@@ -246,6 +250,7 @@ impl MossTranscriber {
                 prompt_tokens,
                 131_072,
             )?;
+            let mut streamed_tokens = Vec::with_capacity(max_new_tokens.min(4096));
             let generated = self.runtime.generate(
                 &input_ids,
                 &mel_chunks,
@@ -268,12 +273,29 @@ impl MossTranscriber {
                                 0,
                             )
                         }
-                        RuntimeProgress::Token { generated } => (
-                            TaskStage::Generating,
-                            generation_progress_percent(generated, audio_tokens),
-                            format!("Generated {generated} tokens"),
-                            generated,
-                        ),
+                        RuntimeProgress::Token { generated, token } => {
+                            streamed_tokens.push(token);
+                            if generated % STREAM_DECODE_INTERVAL_TOKENS == 0
+                                || token == EOS_TOKEN_ID
+                                || token == PAD_TOKEN_ID
+                            {
+                                if let Ok(text) = self.processor.decode(&streamed_tokens) {
+                                    let text = text.trim().to_string();
+                                    stream(TranscriptStreamEvent {
+                                        task_id: String::new(),
+                                        segments: parse_transcript(&text),
+                                        text,
+                                        generated_tokens: generated,
+                                    });
+                                }
+                            }
+                            (
+                                TaskStage::Generating,
+                                generation_progress_percent(generated, audio_tokens),
+                                format!("Generated {generated} tokens"),
+                                generated,
+                            )
+                        }
                     };
                     progress(ProgressEvent {
                         task_id: String::new(),

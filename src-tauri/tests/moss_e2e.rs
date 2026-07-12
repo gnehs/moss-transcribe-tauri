@@ -26,7 +26,7 @@ fn transcribes_long_audio_with_timestamps_and_speakers() {
 
     let mut transcriber = MossTranscriber::load(&model_dir).expect("real MOSS model must load");
     let result = transcriber
-        .transcribe(&pcm, &TranscribeOptions::default(), |_| {})
+        .transcribe(&pcm, &TranscribeOptions::default(), |_| {}, |_| {})
         .expect("real MOSS transcription must succeed");
 
     assert!(

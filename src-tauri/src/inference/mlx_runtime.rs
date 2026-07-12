@@ -71,7 +71,7 @@ const PARITY_PROBE_TOKENS: usize = 32;
 pub(crate) enum RuntimeProgress {
     AudioEncoded,
     Prefill { completed: usize, total: usize },
-    Token { generated: usize },
+    Token { generated: usize, token: u32 },
 }
 
 /// JSON-only parity evidence. This type is available exclusively to the local
@@ -1469,6 +1469,7 @@ impl Qwen3 {
             output.push(next);
             progress(RuntimeProgress::Token {
                 generated: output.len(),
+                token: next,
             });
             if next == PAD_TOKEN_ID || next == EOS_TOKEN_ID {
                 break;
