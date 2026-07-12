@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group";
-import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -77,10 +77,10 @@ function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
   if (!["preparing", "encoding", "prefilling", "generating"].includes(task.status)) return null;
   const etaMs = taskEtaMs(task, now);
   return (
-    <Badge variant="outline">
-      <HourglassIcon data-icon="inline-start" />
+    <>
+      <HourglassIcon data-icon="inline-start" className="size-4" />
       {etaMs == null ? <Trans>ETA 計算中</Trans> : <>ETA {formatElapsedClock(etaMs)}</>}
-    </Badge>
+    </>
   );
 }
 
@@ -129,14 +129,16 @@ export function TaskManagerPanel({
                   <TableCell className="task-name-cell"><div className="truncate font-medium">{task.fileName}</div><div className="truncate text-xs text-muted-foreground">{task.options.outputDir || <Trans>來源資料夾</Trans>}</div></TableCell>
                   <TableCell><Badge variant={task.result?.truncated ? "destructive" : statusVariant(task.status)}>{task.result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge></TableCell>
                   <TableCell className="task-progress-cell">
-                    <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} className="gap-1.5">
-                      <ProgressLabel className="min-w-0 truncate">{task.message ?? <StatusLabel status={task.status} />}</ProgressLabel>
-                      <ProgressValue className="shrink-0">{() => `${task.percent.toFixed(0)}%`}</ProgressValue>
-                    </Progress>
-                    <div className="mt-1.5 flex flex-wrap justify-end gap-1">
-                      <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatElapsedClock(taskElapsedMs(task, now))}</Trans></Badge>
-                      <TaskEtaBadge task={task} now={now} />
+
+                    <div className="mb-1.5 flex flex-wrap justify-between gap-1 items-center tabular-nums">
+                      <div>
+                        {`${task.percent.toFixed(0)}%`}
+                      </div>
+                      <div className="flex items-center gap-1 opacity-50">
+                        <TaskEtaBadge task={task} now={now} />
+                      </div>
                     </div>
+                    <Progress value={task.percent} aria-label={i18n._(msg`任務進度`)} />
                   </TableCell>
                   <TableCell className="task-options-cell"><div className="truncate">{Object.entries(task.options.outputs).filter(([, enabled]) => enabled).map(([format]) => format.toUpperCase()).join(" · ") || <Trans>不輸出檔案</Trans>}</div></TableCell>
                   <TableCell className="text-right"><div className="task-row-actions">
@@ -198,8 +200,8 @@ function TaskDetailSheet({ task, now, onRetryTask, onOpenChange }: {
             <div className="task-result-stack">
               <div className="flex items-center justify-between gap-2">
                 <Badge variant={result?.truncated ? "destructive" : statusVariant(task.status)}>{result?.truncated ? <Trans>結果不完整</Trans> : <StatusLabel status={task.status} />}</Badge>
-                <div className="flex flex-wrap justify-end gap-1">
-                  <Badge variant="outline"><Clock3Icon data-icon="inline-start" /><Trans>已用 {formatDuration(elapsedMs)}</Trans></Badge>
+                <div className="flex flex-wrap justify-end gap-1 items-center tabular-nums">
+                  <Clock3Icon data-icon="inline-start" className="size-4" /><Trans>已用 {formatDuration(elapsedMs)}</Trans>
                   <TaskEtaBadge task={task} now={now} />
                 </div>
               </div>
