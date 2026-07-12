@@ -1,7 +1,7 @@
 {
   "name": "moss-transcribe-tauri",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,8 @@
     "test:prepare-mlx": "node --test scripts/prepare-mlx-metallib.test.mjs",
     "tauri:prepare-mlx": "node scripts/prepare-mlx-metallib.mjs",
     "tauri": "PATH=$HOME/.cargo/bin:$PATH tauri",
-    "tauri:dev": "PATH=$HOME/.cargo/bin:$PATH tauri dev"
+    "tauri:dev": "PATH=$HOME/.cargo/bin:$PATH tauri dev",
+    "version:set": "node scripts/set-version.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
