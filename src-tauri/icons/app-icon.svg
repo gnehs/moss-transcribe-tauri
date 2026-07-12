@@ -1,11 +1,11 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#D8FBE7"/>
-      <stop offset="1" stop-color="#9BE9C9"/>
+      <stop stop-color="#DCEBFF"/>
+      <stop offset="1" stop-color="#A3C7F3"/>
     </linearGradient>
     <filter id="bar-shadow" x="58" y="58" width="908" height="908" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="28" stdDeviation="36" flood-color="#1B8C68" flood-opacity="0.24"/>
+      <feDropShadow dx="0" dy="28" stdDeviation="36" flood-color="#2B6FAF" flood-opacity="0.24"/>
     </filter>
   </defs>
   <rect width="1024" height="1024" rx="226" fill="url(#background)"/>
