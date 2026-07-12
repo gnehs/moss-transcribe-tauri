@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/card";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
@@ -289,9 +288,6 @@ export function SettingsPanel({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <FieldDescription>
-              <Trans>變更後會立即套用。</Trans>
-            </FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="interface-theme">
@@ -330,9 +326,6 @@ export function SettingsPanel({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <FieldDescription>
-              <Trans>跟隨系統偏好，或固定使用亮色／暗色。</Trans>
-            </FieldDescription>
           </Field>
         </FieldGroup>
       </SettingsSection>
