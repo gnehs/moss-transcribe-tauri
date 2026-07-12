@@ -40,6 +40,7 @@ Due to known limitation of docsrs, we are hosting the documentation on github pa
 MLX is an array framework for machine learning on Apple Silicon. mlx-rs provides Rust bindings for MLX, allowing you to use MLX in your Rust projects.
 
 Some key features of MLX and `mlx-rs` include:
+
 - **Performance**: MLX is optimized for Apple Silicon, providing fast performance for machine learning tasks.
 - **Lazy Evaluation**: MLX uses lazy evaluation to optimize performance and memory usage. Arrays are only materialized when needed.
 - **Dynamic Graphs**: Computation graphs in MLX are constructed dynamically, allowing for flexible and efficient computation. Changing the shapes of function arguments does not require recompilation.
@@ -49,13 +50,16 @@ Some key features of MLX and `mlx-rs` include:
 `mlx-rs` is designed to be a safe and idiomatic Rust interface to MLX, providing a seamless experience for Rust developers.
 
 ## Examples
+
 The [examples](examples/) directory contains sample projects demonstrating different uses cases of our library.
+
 - [mnist](examples/mnist/): Train a basic neural network on the MNIST digit dataset
 - [mistral](examples/mistral/): Text generation using the pre-trained Mistral model
 
 ## Installation
 
 Add this to your `Cargo.toml`:
+
 ```toml
 [dependencies]
 mlx-rs = "0.21.0"
@@ -63,14 +67,15 @@ mlx-rs = "0.21.0"
 
 ## Feature Flags
 
-* `metal` - enables metal (GPU) usage in MLX
-* `accelerate` - enables using the accelerate framework in MLX
+- `metal` - enables metal (GPU) usage in MLX
+- `accelerate` - enables using the accelerate framework in MLX
 
 ## Important Notes on Automatic Differentiation
 
 When using automatic differentiation in mlx-rs, there's an important difference in how closures work compared to Python's MLX. In Python, variables are implicitly captured and properly traced in the compute graph. However, in Rust, we need to be more explicit about which arrays should be traced.
 
 ❌ This approach may cause segfaults:
+
 ```rust
 // Don't do this
 let x = random::normal::<f32>(&[num_examples, num_features], None, None, None)?;
@@ -86,6 +91,7 @@ let grad_fn = transforms::grad(loss_fn, &[0]);
 ```
 
 ✅ Instead, pass all required arrays as inputs to ensure proper tracing:
+
 ```rust
 let loss_fn = |inputs: &[Array]| -> Result<Array, Exception> {
     let w = &inputs[0];

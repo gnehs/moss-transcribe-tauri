@@ -24,21 +24,33 @@ import type {
   TranscriptionTask,
 } from "@/types/transcription";
 
-const timedTaskStages = new Set<TaskStatus>(["preparing", "encoding", "prefilling", "generating"]);
+const timedTaskStages = new Set<TaskStatus>([
+  "preparing",
+  "encoding",
+  "prefilling",
+  "generating",
+]);
 
 function isTimedTaskStage(status: TaskStatus): status is TimedTaskStage {
   return timedTaskStages.has(status);
 }
 
-function transitionTaskStage(task: TranscriptionTask, nextStage: TaskStatus, changedAt: number) {
-  if (task.status === nextStage) return {
-    stageStartedAt: task.stageStartedAt,
-    stageTimings: task.stageTimings,
-  };
+function transitionTaskStage(
+  task: TranscriptionTask,
+  nextStage: TaskStatus,
+  changedAt: number
+) {
+  if (task.status === nextStage)
+    return {
+      stageStartedAt: task.stageStartedAt,
+      stageTimings: task.stageTimings,
+    };
 
   const stageTimings = { ...(task.stageTimings ?? {}) };
   if (isTimedTaskStage(task.status) && task.stageStartedAt != null) {
-    stageTimings[task.status] = (stageTimings[task.status] ?? 0) + Math.max(0, changedAt - task.stageStartedAt);
+    stageTimings[task.status] =
+      (stageTimings[task.status] ?? 0) +
+      Math.max(0, changedAt - task.stageStartedAt);
   }
 
   return {
@@ -48,7 +60,9 @@ function transitionTaskStage(task: TranscriptionTask, nextStage: TaskStatus, cha
 }
 
 const supportedExtensions = new Set(
-  audioFilters.flatMap((filter) => filter.extensions.map((extension) => extension.toLowerCase())),
+  audioFilters.flatMap((filter) =>
+    filter.extensions.map((extension) => extension.toLowerCase())
+  )
 );
 
 const taskDraftStorageKey = "moss-transcribe.task-draft-preferences";
@@ -72,22 +86,39 @@ function readStoredTaskDraft(): TaskDraft {
 
     const preferences = parsed as Record<string, unknown>;
     const outputs = preferences.outputs;
-    const storedOutputs = outputs && typeof outputs === "object"
-      ? outputs as Record<string, unknown>
-      : {};
+    const storedOutputs =
+      outputs && typeof outputs === "object"
+        ? (outputs as Record<string, unknown>)
+        : {};
 
     return {
       ...fallback,
-      outputDir: typeof preferences.outputDir === "string" ? preferences.outputDir : fallback.outputDir,
+      outputDir:
+        typeof preferences.outputDir === "string"
+          ? preferences.outputDir
+          : fallback.outputDir,
       outputs: {
-        txt: typeof storedOutputs.txt === "boolean" ? storedOutputs.txt : fallback.outputs.txt,
-        json: typeof storedOutputs.json === "boolean" ? storedOutputs.json : fallback.outputs.json,
-        srt: typeof storedOutputs.srt === "boolean" ? storedOutputs.srt : fallback.outputs.srt,
+        txt:
+          typeof storedOutputs.txt === "boolean"
+            ? storedOutputs.txt
+            : fallback.outputs.txt,
+        json:
+          typeof storedOutputs.json === "boolean"
+            ? storedOutputs.json
+            : fallback.outputs.json,
+        srt:
+          typeof storedOutputs.srt === "boolean"
+            ? storedOutputs.srt
+            : fallback.outputs.srt,
       },
-      prompt: typeof preferences.prompt === "string" ? preferences.prompt : fallback.prompt,
-      convertToTraditional: typeof preferences.convertToTraditional === "boolean"
-        ? preferences.convertToTraditional
-        : fallback.convertToTraditional,
+      prompt:
+        typeof preferences.prompt === "string"
+          ? preferences.prompt
+          : fallback.prompt,
+      convertToTraditional:
+        typeof preferences.convertToTraditional === "boolean"
+          ? preferences.convertToTraditional
+          : fallback.convertToTraditional,
     };
   } catch {
     return fallback;
@@ -96,12 +127,15 @@ function readStoredTaskDraft(): TaskDraft {
 
 function saveTaskDraftPreferences(taskDraft: TaskDraft) {
   try {
-    window.localStorage.setItem(taskDraftStorageKey, JSON.stringify({
-      outputDir: taskDraft.outputDir,
-      outputs: taskDraft.outputs,
-      prompt: taskDraft.prompt,
-      convertToTraditional: taskDraft.convertToTraditional,
-    }));
+    window.localStorage.setItem(
+      taskDraftStorageKey,
+      JSON.stringify({
+        outputDir: taskDraft.outputDir,
+        outputs: taskDraft.outputs,
+        prompt: taskDraft.prompt,
+        convertToTraditional: taskDraft.convertToTraditional,
+      })
+    );
   } catch {
     // Storage can be unavailable or full; task creation should still work in memory.
   }
@@ -117,7 +151,7 @@ function isSupportedMediaPath(path: string) {
 }
 
 function pathsFromDialogSelection(selected: string | string[] | null) {
-  return typeof selected === "string" ? [selected] : selected ?? [];
+  return typeof selected === "string" ? [selected] : (selected ?? []);
 }
 
 function modelFallback(): ModelStatus {
@@ -153,7 +187,8 @@ export function useTranscriptionWorkspace() {
   const [isTaskDialogOpen, setTaskDialogOpen] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [downloadProgress, setDownloadProgress] =
+    useState<DownloadProgress | null>(null);
   const [isConfirmingTasks, setIsConfirmingTasks] = useState(false);
   const [deletingModel, setDeletingModel] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -162,7 +197,12 @@ export function useTranscriptionWorkspace() {
 
   useEffect(() => {
     saveTaskDraftPreferences(taskDraft);
-  }, [taskDraft.convertToTraditional, taskDraft.outputDir, taskDraft.outputs, taskDraft.prompt]);
+  }, [
+    taskDraft.convertToTraditional,
+    taskDraft.outputDir,
+    taskDraft.outputs,
+    taskDraft.prompt,
+  ]);
 
   const refreshRuntime = useCallback(async () => {
     const [nextModel, nextFfmpeg, nextSystem] = await Promise.allSettled([
@@ -182,7 +222,8 @@ export function useTranscriptionWorkspace() {
       toast.error(i18n._(msg`沒有可加入的支援檔案`));
       return;
     }
-    if (rejectedCount > 0) toast.warning(i18n._(msg`已略過 ${rejectedCount} 個不支援的檔案`));
+    if (rejectedCount > 0)
+      toast.warning(i18n._(msg`已略過 ${rejectedCount} 個不支援的檔案`));
     setTaskDraft((current) => ({ ...current, inputPaths: acceptedPaths }));
     setTaskDialogOpen(true);
   }, []);
@@ -190,27 +231,39 @@ export function useTranscriptionWorkspace() {
   const runQueuedTask = useCallback(async (task: TranscriptionTask) => {
     runningTaskIdRef.current = task.id;
     const startedAt = Date.now();
-    setTasks((current) => current.map((item) => item.id === task.id ? {
-      ...item,
-      status: "preparing",
-      startedAt,
-      completedAt: null,
-      stageStartedAt: startedAt,
-      stageTimings: {},
-      error: null,
-      result: null,
-      stream: null,
-      progress: null,
-    } : item));
+    setTasks((current) =>
+      current.map((item) =>
+        item.id === task.id
+          ? {
+              ...item,
+              status: "preparing",
+              startedAt,
+              completedAt: null,
+              stageStartedAt: startedAt,
+              stageTimings: {},
+              error: null,
+              result: null,
+              stream: null,
+              progress: null,
+            }
+          : item
+      )
+    );
     try {
       const onStream = new Channel<TranscriptStreamEvent>();
       onStream.onmessage = (partial) => {
         if (partial.taskId !== task.id) return;
-        setTasks((current) => current.map((item) => item.id === task.id ? {
-          ...item,
-          stream: partial,
-          updatedAt: new Date().toISOString(),
-        } : item));
+        setTasks((current) =>
+          current.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  stream: partial,
+                  updatedAt: new Date().toISOString(),
+                }
+              : item
+          )
+        );
       };
       const result = await invoke<TranscriptionResult>("transcribe_file", {
         onStream,
@@ -230,20 +283,28 @@ export function useTranscriptionWorkspace() {
         },
       });
       const completedAt = Date.now();
-      setTasks((current) => current.map((item) => item.id === task.id ? {
-        ...item,
-        ...transitionTaskStage(item, "completed", completedAt),
-        status: "completed",
-        percent: 100,
-        progress: null,
-        result,
-        stream: null,
-        completedAt,
-        updatedAt: new Date().toISOString(),
-      } : item));
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                ...transitionTaskStage(item, "completed", completedAt),
+                status: "completed",
+                percent: 100,
+                progress: null,
+                result,
+                stream: null,
+                completedAt,
+                updatedAt: new Date().toISOString(),
+              }
+            : item
+        )
+      );
       if (result.truncated) {
         toast.warning(i18n._(msg`結果不完整`), {
-          description: i18n._(msg`已保留目前逐字稿。請將較長音訊分段後，重新轉錄遺失的部分。`),
+          description: i18n._(
+            msg`已保留目前逐字稿。請將較長音訊分段後，重新轉錄遺失的部分。`
+          ),
         });
       } else {
         toast.success(i18n._(msg`${basename(task.inputPath)} 已完成`));
@@ -251,16 +312,24 @@ export function useTranscriptionWorkspace() {
     } catch (error) {
       const message = formatInvokeError(error);
       const completedAt = Date.now();
-      setTasks((current) => current.map((item) => item.id === task.id ? {
-        ...item,
-        ...transitionTaskStage(item, "failed", completedAt),
-        status: "failed",
-        error: message,
-        progress: null,
-        completedAt,
-        updatedAt: new Date().toISOString(),
-      } : item));
-      toast.error(i18n._(msg`${basename(task.inputPath)} 失敗`), { description: message });
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                ...transitionTaskStage(item, "failed", completedAt),
+                status: "failed",
+                error: message,
+                progress: null,
+                completedAt,
+                updatedAt: new Date().toISOString(),
+              }
+            : item
+        )
+      );
+      toast.error(i18n._(msg`${basename(task.inputPath)} 失敗`), {
+        description: message,
+      });
     } finally {
       runningTaskIdRef.current = null;
     }
@@ -271,38 +340,59 @@ export function useTranscriptionWorkspace() {
     const unlisteners = Promise.all([
       listen<TranscriptionProgress>("transcription-progress", (event) => {
         const progress = event.payload;
-        if (!progress.taskId || progress.taskId !== runningTaskIdRef.current) return;
+        if (!progress.taskId || progress.taskId !== runningTaskIdRef.current)
+          return;
         const changedAt = Date.now();
-        setTasks((current) => current.map((task) => task.id === progress.taskId ? {
-          ...task,
-          ...transitionTaskStage(task, progress.stage as TaskStatus, changedAt),
-          status: progress.stage as TaskStatus,
-          percent: Math.max(0, Math.min(100, progress.percent)),
-          message: progress.message,
-          progress,
-          updatedAt: new Date().toISOString(),
-        } : task));
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === progress.taskId
+              ? {
+                  ...task,
+                  ...transitionTaskStage(
+                    task,
+                    progress.stage as TaskStatus,
+                    changedAt
+                  ),
+                  status: progress.stage as TaskStatus,
+                  percent: Math.max(0, Math.min(100, progress.percent)),
+                  message: progress.message,
+                  progress,
+                  updatedAt: new Date().toISOString(),
+                }
+              : task
+          )
+        );
       }),
       listen<DownloadProgress>("model-download-progress", (event) => {
         setDownloadProgress(event.payload);
         if (event.payload.state === "complete") void refreshRuntime();
       }),
     ]);
-    return () => { void unlisteners.then((items) => items.forEach((unlisten) => unlisten())); };
+    return () => {
+      void unlisteners.then((items) => items.forEach((unlisten) => unlisten()));
+    };
   }, [refreshRuntime]);
 
-  useEffect(() => { openTaskDialogRef.current = openTaskDialog; }, [openTaskDialog]);
+  useEffect(() => {
+    openTaskDialogRef.current = openTaskDialog;
+  }, [openTaskDialog]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    void getCurrentWebview().onDragDropEvent((event) => {
-      if (event.payload.type === "enter" || event.payload.type === "over") {
-        setIsDraggingFiles(true);
-        return;
-      }
-      setIsDraggingFiles(false);
-      if (event.payload.type === "drop") openTaskDialogRef.current(event.payload.paths);
-    }).then((handler) => { unlisten = handler; }).catch(() => setIsDraggingFiles(false));
+    void getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setIsDraggingFiles(true);
+          return;
+        }
+        setIsDraggingFiles(false);
+        if (event.payload.type === "drop")
+          openTaskDialogRef.current(event.payload.paths);
+      })
+      .then((handler) => {
+        unlisten = handler;
+      })
+      .catch(() => setIsDraggingFiles(false));
     return () => unlisten?.();
   }, []);
 
@@ -320,7 +410,8 @@ export function useTranscriptionWorkspace() {
 
   async function pickTaskOutputDir() {
     const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string") setTaskDraft((current) => ({ ...current, outputDir: selected }));
+    if (typeof selected === "string")
+      setTaskDraft((current) => ({ ...current, outputDir: selected }));
   }
 
   async function confirmTaskDraft() {
@@ -329,41 +420,71 @@ export function useTranscriptionWorkspace() {
     try {
       if (!model.installed) await downloadModel();
       const now = new Date().toISOString();
-      const nextTasks = taskDraft.inputPaths.map((inputPath, index): TranscriptionTask => ({
-        id: createTaskId(), inputPath, fileName: basename(inputPath), status: "queued", percent: 0,
-        message: null, createdAt: now, updatedAt: now, revision: index, options: {
-          outputDir: taskDraft.outputDir, outputs: taskDraft.outputs,
-          prompt: taskDraft.prompt.trim() || null,
-          convertToTraditional: taskDraft.convertToTraditional,
-        }, progress: null, result: null, stream: null, error: null, startedAt: null, completedAt: null,
-        stageStartedAt: null, stageTimings: {},
-      }));
+      const nextTasks = taskDraft.inputPaths.map(
+        (inputPath, index): TranscriptionTask => ({
+          id: createTaskId(),
+          inputPath,
+          fileName: basename(inputPath),
+          status: "queued",
+          percent: 0,
+          message: null,
+          createdAt: now,
+          updatedAt: now,
+          revision: index,
+          options: {
+            outputDir: taskDraft.outputDir,
+            outputs: taskDraft.outputs,
+            prompt: taskDraft.prompt.trim() || null,
+            convertToTraditional: taskDraft.convertToTraditional,
+          },
+          progress: null,
+          result: null,
+          stream: null,
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          stageStartedAt: null,
+          stageTimings: {},
+        })
+      );
       setTasks((current) => [...current, ...nextTasks]);
       setTaskDialogOpen(false);
       toast.success(i18n._(msg`已加入 ${nextTasks.length} 個任務`));
     } catch (error) {
       toast.error(formatInvokeError(error));
-    } finally { setIsConfirmingTasks(false); }
+    } finally {
+      setIsConfirmingTasks(false);
+    }
   }
 
   async function downloadModel(redownload = false) {
     setIsDownloading(true);
     setDownloadProgress(null);
     try {
-      const next = await invoke<ModelStatus>(redownload ? "redownload_model" : "download_model");
+      const next = await invoke<ModelStatus>(
+        redownload ? "redownload_model" : "download_model"
+      );
       setModel(next);
-      toast.success(redownload ? i18n._(msg`模型已重新下載`) : i18n._(msg`模型已可使用`));
+      toast.success(
+        redownload ? i18n._(msg`模型已重新下載`) : i18n._(msg`模型已可使用`)
+      );
     } catch (error) {
       toast.error(formatInvokeError(error));
       throw error;
-    } finally { setIsDownloading(false); }
+    } finally {
+      setIsDownloading(false);
+    }
   }
 
   async function recheckFfmpeg() {
     try {
       const next = await invoke<FfmpegStatus>("get_ffmpeg_status");
       setFfmpeg(next);
-      toast.success(next.available ? i18n._(msg`FFmpeg 可用`) : i18n._(msg`仍未偵測到 FFmpeg`));
+      toast.success(
+        next.available
+          ? i18n._(msg`FFmpeg 可用`)
+          : i18n._(msg`仍未偵測到 FFmpeg`)
+      );
     } catch (error) {
       toast.error(formatInvokeError(error));
     }
@@ -376,8 +497,12 @@ export function useTranscriptionWorkspace() {
       await invoke("delete_model");
       await refreshRuntime();
       return true;
-    } catch (error) { toast.error(formatInvokeError(error)); return false; }
-    finally { setDeletingModel(false); }
+    } catch (error) {
+      toast.error(formatInvokeError(error));
+      return false;
+    } finally {
+      setDeletingModel(false);
+    }
   }
 
   async function revealModel() {
@@ -390,10 +515,25 @@ export function useTranscriptionWorkspace() {
   }
 
   function retryTask(taskId: string) {
-    setTasks((current) => current.map((task) => task.id === taskId ? {
-      ...task, status: "queued", percent: 0, error: null, progress: null, result: null, stream: null,
-      startedAt: null, completedAt: null, stageStartedAt: null, stageTimings: {},
-    } : task));
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              status: "queued",
+              percent: 0,
+              error: null,
+              progress: null,
+              result: null,
+              stream: null,
+              startedAt: null,
+              completedAt: null,
+              stageStartedAt: null,
+              stageTimings: {},
+            }
+          : task
+      )
+    );
   }
 
   function removeTask(taskId: string) {
@@ -402,14 +542,37 @@ export function useTranscriptionWorkspace() {
   }
 
   function clearFinishedTasks() {
-    setTasks((current) => current.filter((task) => task.status !== "completed"));
+    setTasks((current) =>
+      current.filter((task) => task.status !== "completed")
+    );
   }
 
   return {
-    tasks, taskDraft, model, ffmpeg, system, isTaskDialogOpen, isDraggingFiles,
-    isDownloading, downloadProgress, isConfirmingTasks, deletingModel, selectedTaskId,
-    setTaskDraft, setTaskDialogOpen, setSelectedTaskId, pickFilesForTasks, pickTaskOutputDir,
-    confirmTaskDraft, downloadModel, deleteModel, retryTask, removeTask, clearFinishedTasks,
-    revealModel, refreshRuntime, recheckFfmpeg,
+    tasks,
+    taskDraft,
+    model,
+    ffmpeg,
+    system,
+    isTaskDialogOpen,
+    isDraggingFiles,
+    isDownloading,
+    downloadProgress,
+    isConfirmingTasks,
+    deletingModel,
+    selectedTaskId,
+    setTaskDraft,
+    setTaskDialogOpen,
+    setSelectedTaskId,
+    pickFilesForTasks,
+    pickTaskOutputDir,
+    confirmTaskDraft,
+    downloadModel,
+    deleteModel,
+    retryTask,
+    removeTask,
+    clearFinishedTasks,
+    revealModel,
+    refreshRuntime,
+    recheckFfmpeg,
   };
 }

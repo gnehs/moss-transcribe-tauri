@@ -72,7 +72,8 @@ export function formatTiming(ms: number | null | undefined) {
   if (ms < 1000) return `${Math.round(ms)} ms`;
 
   const seconds = ms / 1000;
-  const formattedSeconds = seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1);
+  const formattedSeconds =
+    seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1);
   return i18n._(msg`${formattedSeconds} 秒`);
 }
 

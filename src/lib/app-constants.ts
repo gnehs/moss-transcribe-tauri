@@ -5,7 +5,18 @@ export const mossModelRepository = "OpenMOSS-Team/MOSS-Transcribe-Diarize";
 export const audioFilters = [
   {
     name: "Audio and video",
-    extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg", "mp4", "mov", "mkv", "webm"],
+    extensions: [
+      "wav",
+      "mp3",
+      "m4a",
+      "aac",
+      "flac",
+      "ogg",
+      "mp4",
+      "mov",
+      "mkv",
+      "webm",
+    ],
   },
 ];
 

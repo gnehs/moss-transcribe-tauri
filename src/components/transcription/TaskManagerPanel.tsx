@@ -129,7 +129,7 @@ function taskElapsedMs(task: TranscriptionTask, now: number) {
 function taskStageElapsedMs(
   task: TranscriptionTask,
   stage: TimedTaskStage,
-  now: number,
+  now: number
 ) {
   const completed = task.stageTimings?.[stage] ?? 0;
   if (task.status === stage && task.stageStartedAt != null) {
@@ -208,7 +208,7 @@ function TaskDetailSectionTitle({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 text-sm font-semibold leading-snug">
+    <div className="flex min-w-0 items-center gap-2 text-sm leading-snug font-semibold">
       {Icon ? <Icon className="size-4 shrink-0" /> : null}
       {children}
     </div>
@@ -229,26 +229,31 @@ function TaskDetailStat({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-w-0 items-start gap-2.5 py-2 leading-none", className)}>
+    <div
+      className={cn(
+        "flex min-w-0 items-start gap-2.5 py-2 leading-none",
+        className
+      )}
+    >
       <div
-        className="grid size-[30px] shrink-0 place-items-center rounded-md bg-foreground/10 text-foreground [&_svg]:size-4"
+        className="bg-foreground/10 text-foreground grid size-[30px] shrink-0 place-items-center rounded-md [&_svg]:size-4"
         aria-hidden="true"
       >
         <Icon />
       </div>
       <div className="min-w-0">
-        <div className="truncate text-xs leading-snug text-muted-foreground">
+        <div className="text-muted-foreground truncate text-xs leading-snug">
           {label}
         </div>
         <div
           className={cn(
-            "text-base font-semibold leading-snug tabular-nums",
-            detail && "flex flex-wrap items-center gap-x-2 gap-y-0.5",
+            "text-base leading-snug font-semibold tabular-nums",
+            detail && "flex flex-wrap items-center gap-x-2 gap-y-0.5"
           )}
         >
           {value}
           {detail ? (
-            <div className="flex min-w-0 items-center gap-1 text-xs font-normal leading-snug text-muted-foreground">
+            <div className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs leading-snug font-normal">
               {detail}
             </div>
           ) : null}
@@ -295,12 +300,12 @@ export function TaskManagerPanel({
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const [now, setNow] = useState(Date.now());
   const hasActiveTasks = tasks.some((task) =>
-    ["preparing", "encoding", "prefilling", "generating"].includes(task.status),
+    ["preparing", "encoding", "prefilling", "generating"].includes(task.status)
   );
   const isModelDownloadPending = isConfirmingTasks;
   const modelDownloadPercent = Math.max(
     0,
-    Math.min(100, downloadProgress?.percent ?? 0),
+    Math.min(100, downloadProgress?.percent ?? 0)
   );
 
   useEffect(() => {
@@ -341,7 +346,7 @@ export function TaskManagerPanel({
                 {tasks.map((task) => (
                   <TableRow
                     key={task.id}
-                    className="cursor-pointer data-[selected=true]:bg-primary/5"
+                    className="data-[selected=true]:bg-primary/5 cursor-pointer"
                     data-selected={selectedTask?.id === task.id}
                     onClick={() => onSelectedTaskChange(task.id)}
                   >
@@ -349,7 +354,7 @@ export function TaskManagerPanel({
                       <div className="truncate font-medium">
                         {task.fileName}
                       </div>
-                      <div className="truncate text-xs text-muted-foreground">
+                      <div className="text-muted-foreground truncate text-xs">
                         {task.options.outputDir || <Trans>來源資料夾</Trans>}
                       </div>
                     </TableCell>
@@ -433,10 +438,10 @@ export function TaskManagerPanel({
             <Empty className="h-full min-h-[360px] justify-between gap-6 pb-6">
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
                 <EmptyHeader>
-                  <EmptyMedia className="size-16 rounded-xl  " variant="icon">
+                  <EmptyMedia className="size-16 rounded-xl" variant="icon">
                     <FileAudioIcon className="size-8" />
                   </EmptyMedia>
-                  <EmptyTitle className="text-2xl font-semibold leading-tight">
+                  <EmptyTitle className="text-2xl leading-tight font-semibold">
                     <Trans>尚無任務</Trans>
                   </EmptyTitle>
                   <EmptyDescription>
@@ -454,7 +459,7 @@ export function TaskManagerPanel({
                   </Button>
                 </EmptyContent>
               </div>
-              <p className="m-0 text-center text-sm/relaxed text-muted-foreground">
+              <p className="text-muted-foreground m-0 text-center text-sm/relaxed">
                 wav、mp3、m4a、aac、flac、ogg、mp4、mov、mkv、webm
               </p>
             </Empty>
@@ -494,7 +499,7 @@ export function TaskManagerPanel({
                   value={modelDownloadPercent}
                   aria-label={i18n._(msg`模型下載進度`)}
                 />
-                <div className="flex min-w-0 items-center justify-between gap-4 text-sm text-muted-foreground">
+                <div className="text-muted-foreground flex min-w-0 items-center justify-between gap-4 text-sm">
                   <span className="min-w-0 truncate">
                     {downloadProgress?.currentFile ?? (
                       <Trans>正在準備下載</Trans>
@@ -519,127 +524,127 @@ export function TaskManagerPanel({
                   </Trans>
                 </DialogDescription>
               </DialogHeader>
-              <div className="scroll-fade flex min-h-0 max-h-[min(620px,calc(100vh-220px))] flex-col gap-4 overflow-x-hidden overflow-y-auto p-1">
-            <FieldGroup>
-              <Field>
-                <FieldLabel>
-                  <Trans>模型</Trans>
-                </FieldLabel>
-                <InputGroup>
-                  <InputGroupInput
-                    readOnly
-                    value="OpenMOSS-Team/MOSS-Transcribe-Diarize"
-                  />
-                  <InputGroupAddon align="inline-end">
-                    <Trans>固定</Trans>
-                  </InputGroupAddon>
-                </InputGroup>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="task-output-dir">
-                  <Trans>輸出資料夾</Trans>
-                </FieldLabel>
-                <InputGroup>
-                  <InputGroupInput
-                    id="task-output-dir"
-                    readOnly
-                    value={taskDraft.outputDir}
-                    placeholder={i18n._(msg`預設使用來源檔案所在資料夾`)}
-                  />
-                  <InputGroupAddon align="inline-end">
-                    <InputGroupButton onClick={onPickOutputDir}>
-                      <FolderOpenIcon data-icon="inline-start" />
-                      <Trans>選取</Trans>
-                    </InputGroupButton>
-                  </InputGroupAddon>
-                </InputGroup>
-              </Field>
-              <TaskOutputSwitch
-                id="task-write-txt"
-                label={<Trans>輸出 TXT</Trans>}
-                description={<Trans>純文字轉錄稿。</Trans>}
-                checked={taskDraft.outputs.txt}
-                onCheckedChange={(checked) =>
-                  onTaskDraftChange((current) => ({
-                    ...current,
-                    outputs: { ...current.outputs, txt: checked },
-                  }))
-                }
-              />
-              <TaskOutputSwitch
-                id="task-write-json"
-                label={<Trans>輸出 JSON</Trans>}
-                description={<Trans>保留說話者與時間區段。</Trans>}
-                checked={taskDraft.outputs.json}
-                onCheckedChange={(checked) =>
-                  onTaskDraftChange((current) => ({
-                    ...current,
-                    outputs: { ...current.outputs, json: checked },
-                  }))
-                }
-              />
-              <TaskOutputSwitch
-                id="task-write-srt"
-                label={<Trans>輸出 SRT</Trans>}
-                description={<Trans>建立字幕檔。</Trans>}
-                checked={taskDraft.outputs.srt}
-                onCheckedChange={(checked) =>
-                  onTaskDraftChange((current) => ({
-                    ...current,
-                    outputs: { ...current.outputs, srt: checked },
-                  }))
-                }
-              />
-              <TaskOutputSwitch
-                id="task-convert-traditional"
-                label={<Trans>簡體轉繁體</Trans>}
-                description={
-                  <Trans>
-                    將轉錄結果轉為台灣繁體中文，套用於畫面與所有匯出檔。
-                  </Trans>
-                }
-                checked={taskDraft.convertToTraditional}
-                onCheckedChange={(checked) =>
-                  onTaskDraftChange((current) => ({
-                    ...current,
-                    convertToTraditional: checked,
-                  }))
-                }
-              />
-              <Field>
-                <FieldLabel htmlFor="task-prompt">
-                  <Trans>提示詞</Trans>
-                </FieldLabel>
-                <InputGroup>
-                  <InputGroupTextarea
-                    id="task-prompt"
-                    value={taskDraft.prompt}
-                    placeholder={i18n._(
-                      msg`留空使用 MOSS 預設提示詞；也可加入專有名詞`,
-                    )}
-                    onChange={(event) =>
+              <div className="scroll-fade flex max-h-[min(620px,calc(100vh-220px))] min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto p-1">
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel>
+                      <Trans>模型</Trans>
+                    </FieldLabel>
+                    <InputGroup>
+                      <InputGroupInput
+                        readOnly
+                        value="OpenMOSS-Team/MOSS-Transcribe-Diarize"
+                      />
+                      <InputGroupAddon align="inline-end">
+                        <Trans>固定</Trans>
+                      </InputGroupAddon>
+                    </InputGroup>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="task-output-dir">
+                      <Trans>輸出資料夾</Trans>
+                    </FieldLabel>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="task-output-dir"
+                        readOnly
+                        value={taskDraft.outputDir}
+                        placeholder={i18n._(msg`預設使用來源檔案所在資料夾`)}
+                      />
+                      <InputGroupAddon align="inline-end">
+                        <InputGroupButton onClick={onPickOutputDir}>
+                          <FolderOpenIcon data-icon="inline-start" />
+                          <Trans>選取</Trans>
+                        </InputGroupButton>
+                      </InputGroupAddon>
+                    </InputGroup>
+                  </Field>
+                  <TaskOutputSwitch
+                    id="task-write-txt"
+                    label={<Trans>輸出 TXT</Trans>}
+                    description={<Trans>純文字轉錄稿。</Trans>}
+                    checked={taskDraft.outputs.txt}
+                    onCheckedChange={(checked) =>
                       onTaskDraftChange((current) => ({
                         ...current,
-                        prompt: event.target.value,
+                        outputs: { ...current.outputs, txt: checked },
                       }))
                     }
                   />
-                </InputGroup>
-              </Field>
-            </FieldGroup>
-            <div className="scroll-fade h-40 max-w-full min-w-0 overflow-y-auto rounded-lg border">
-              {taskDraft.inputPaths.map((path) => (
-                <div
-                  key={path}
-                  className="flex min-w-0 w-full max-w-full items-center gap-2 overflow-hidden border-b px-2.5 py-2 text-sm last:border-b-0"
-                >
-                  <FileAudioIcon className="shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">
-                    {basename(path)}
-                  </span>
+                  <TaskOutputSwitch
+                    id="task-write-json"
+                    label={<Trans>輸出 JSON</Trans>}
+                    description={<Trans>保留說話者與時間區段。</Trans>}
+                    checked={taskDraft.outputs.json}
+                    onCheckedChange={(checked) =>
+                      onTaskDraftChange((current) => ({
+                        ...current,
+                        outputs: { ...current.outputs, json: checked },
+                      }))
+                    }
+                  />
+                  <TaskOutputSwitch
+                    id="task-write-srt"
+                    label={<Trans>輸出 SRT</Trans>}
+                    description={<Trans>建立字幕檔。</Trans>}
+                    checked={taskDraft.outputs.srt}
+                    onCheckedChange={(checked) =>
+                      onTaskDraftChange((current) => ({
+                        ...current,
+                        outputs: { ...current.outputs, srt: checked },
+                      }))
+                    }
+                  />
+                  <TaskOutputSwitch
+                    id="task-convert-traditional"
+                    label={<Trans>簡體轉繁體</Trans>}
+                    description={
+                      <Trans>
+                        將轉錄結果轉為台灣繁體中文，套用於畫面與所有匯出檔。
+                      </Trans>
+                    }
+                    checked={taskDraft.convertToTraditional}
+                    onCheckedChange={(checked) =>
+                      onTaskDraftChange((current) => ({
+                        ...current,
+                        convertToTraditional: checked,
+                      }))
+                    }
+                  />
+                  <Field>
+                    <FieldLabel htmlFor="task-prompt">
+                      <Trans>提示詞</Trans>
+                    </FieldLabel>
+                    <InputGroup>
+                      <InputGroupTextarea
+                        id="task-prompt"
+                        value={taskDraft.prompt}
+                        placeholder={i18n._(
+                          msg`留空使用 MOSS 預設提示詞；也可加入專有名詞`
+                        )}
+                        onChange={(event) =>
+                          onTaskDraftChange((current) => ({
+                            ...current,
+                            prompt: event.target.value,
+                          }))
+                        }
+                      />
+                    </InputGroup>
+                  </Field>
+                </FieldGroup>
+                <div className="scroll-fade h-40 max-w-full min-w-0 overflow-y-auto rounded-lg border">
+                  {taskDraft.inputPaths.map((path) => (
+                    <div
+                      key={path}
+                      className="flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden border-b px-2.5 py-2 text-sm last:border-b-0"
+                    >
+                      <FileAudioIcon className="text-muted-foreground shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {basename(path)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
               </div>
               <DialogFooter>
                 <Button
@@ -707,7 +712,7 @@ function TaskDetailSheet({
     <Sheet open={Boolean(task)} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="gap-0 border-l border-border data-[side=right]:w-[min(720px,100vw)] data-[side=right]:sm:max-w-[min(720px,100vw)]"
+        className="border-border gap-0 border-l data-[side=right]:w-[min(720px,100vw)] data-[side=right]:sm:max-w-[min(720px,100vw)]"
       >
         {task ? (
           <Tabs
@@ -716,10 +721,10 @@ function TaskDetailSheet({
             onValueChange={setActiveTab}
             className="min-h-0 min-w-0 flex-1 gap-0"
           >
-            <SheetHeader className="gap-3 bg-foreground/[0.03] px-6 pb-4 pt-5 pr-12 max-[720px]:px-4">
+            <SheetHeader className="bg-foreground/[0.03] gap-3 px-6 pt-5 pr-12 pb-4 max-[720px]:px-4">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold leading-tight tracking-[0.04em] text-muted-foreground">
+                  <div className="text-muted-foreground text-xs leading-tight font-semibold tracking-[0.04em]">
                     <Trans>任務詳情</Trans>
                   </div>
                   <SheetTitle className="mt-0.5 truncate text-lg leading-snug">
@@ -727,7 +732,7 @@ function TaskDetailSheet({
                   </SheetTitle>
                 </div>
               </div>
-              <SheetDescription className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground">
+              <SheetDescription className="text-muted-foreground flex min-w-0 flex-col gap-2 text-xs">
                 <span className="flex min-w-0 items-center gap-2">
                   <CircleIndicator
                     progress={taskPercent}
@@ -736,11 +741,11 @@ function TaskDetailSheet({
                     color="var(--foreground)"
                     trackColor="var(--ring)"
                   />
-                  <span className="shrink-0 tabular-nums font-medium text-foreground">
+                  <span className="text-foreground shrink-0 font-medium tabular-nums">
                     {taskPercent.toFixed(0)}%
                   </span>
                   <span aria-hidden="true">·</span>
-                  <span className="shrink-0 text-foreground">
+                  <span className="text-foreground shrink-0">
                     {result?.truncated ? (
                       <Trans>結果不完整</Trans>
                     ) : (
@@ -753,9 +758,11 @@ function TaskDetailSheet({
                   </span>
                   <span aria-hidden="true">·</span>
                   <span className="min-w-0 truncate">
-                    {outputFormats.length
-                      ? outputFormats.join(" · ")
-                      : <Trans>不輸出檔案</Trans>}
+                    {outputFormats.length ? (
+                      outputFormats.join(" · ")
+                    ) : (
+                      <Trans>不輸出檔案</Trans>
+                    )}
                   </span>
                 </span>
               </SheetDescription>
@@ -766,13 +773,13 @@ function TaskDetailSheet({
                 className="w-full justify-start gap-[18px] rounded-none p-0"
               >
                 <TabsTrigger
-                  className="flex-none px-0 pb-2 pt-2"
+                  className="flex-none px-0 pt-2 pb-2"
                   value="statistics"
                 >
                   <Trans>統計資訊</Trans>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="flex-none px-0 pb-2 pt-2"
+                  className="flex-none px-0 pt-2 pb-2"
                   value="transcript"
                 >
                   <Trans>逐字稿</Trans>
@@ -781,15 +788,15 @@ function TaskDetailSheet({
             </div>
             <Separator />
             <ScrollArea
-              className="min-h-0 flex-1 overflow-hidden px-6 pb-6 pt-5 max-[720px]:px-4"
+              className="min-h-0 flex-1 overflow-hidden px-6 pt-5 pb-6 max-[720px]:px-4"
               viewportClassName="scroll-fade"
               viewportRef={scrollViewportRef}
             >
               <div className="flex min-w-0 flex-col">
-              <TabsContent
-                value="statistics"
-                className="flex min-w-0 flex-col gap-5 text-sm outline-none"
-              >
+                <TabsContent
+                  value="statistics"
+                  className="flex min-w-0 flex-col gap-5 text-sm outline-none"
+                >
                   <div className="grid grid-cols-2 max-[720px]:grid-cols-1">
                     <TaskDetailStat
                       icon={TimerIcon}
@@ -798,7 +805,6 @@ function TaskDetailSheet({
                       detail={<TaskEtaBadge task={task} now={now} />}
                     />
                     <TaskDetailStat
-
                       icon={AudioLinesIcon}
                       label={<Trans>音訊長度</Trans>}
                       value={
@@ -808,7 +814,6 @@ function TaskDetailSheet({
                       }
                     />
                     <TaskDetailStat
-
                       icon={HashIcon}
                       label="Prompt tokens"
                       value={
@@ -816,7 +821,6 @@ function TaskDetailSheet({
                       }
                     />
                     <TaskDetailStat
-
                       icon={HashIcon}
                       label="Generated tokens"
                       value={
@@ -833,13 +837,13 @@ function TaskDetailSheet({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="h-8 py-0 text-xs text-muted-foreground">
+                          <TableHead className="text-muted-foreground h-8 py-0 text-xs">
                             <Trans>階段</Trans>
                           </TableHead>
-                          <TableHead className="h-8 py-0 text-xs text-muted-foreground">
+                          <TableHead className="text-muted-foreground h-8 py-0 text-xs">
                             <Trans>進度範圍</Trans>
                           </TableHead>
-                          <TableHead className="h-8 py-0 text-right text-xs text-muted-foreground">
+                          <TableHead className="text-muted-foreground h-8 py-0 text-right text-xs">
                             <Trans>耗時</Trans>
                           </TableHead>
                         </TableRow>
@@ -855,7 +859,7 @@ function TaskDetailSheet({
                             </TableCell>
                             <TableCell className="py-2.5 text-right font-mono">
                               {formatElapsedClock(
-                                taskStageElapsedMs(task, stage, now),
+                                taskStageElapsedMs(task, stage, now)
                               )}
                             </TableCell>
                           </TableRow>
@@ -878,10 +882,10 @@ function TaskDetailSheet({
                             key={format}
                             className="flex min-w-0 items-center gap-2.5 border-b px-0 py-2.5 text-[0.8125rem] last:border-b-0"
                           >
-                            <span className="min-w-[42px] text-[0.6875rem] font-semibold tracking-[0.04em] text-muted-foreground">
+                            <span className="text-muted-foreground min-w-[42px] text-[0.6875rem] font-semibold tracking-[0.04em]">
                               {format}
                             </span>
-                            <span className="min-w-0 truncate text-foreground">
+                            <span className="text-foreground min-w-0 truncate">
                               {path ?? <Trans>未輸出</Trans>}
                             </span>
                           </div>
@@ -913,11 +917,11 @@ function TaskDetailSheet({
                         <TableBody>
                           {transcript.segments.map((segment, index) => (
                             <TableRow key={`${segment.start}-${index}`}>
-                              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
                                 {formatTimestamp(segment.start * 1000)} –{" "}
                                 {formatTimestamp(segment.end * 1000)}
                               </TableCell>
-                              <TableCell className="whitespace-nowrap font-mono text-xs">
+                              <TableCell className="font-mono text-xs whitespace-nowrap">
                                 {segment.speaker}
                               </TableCell>
                               <TableCell className="whitespace-pre-wrap">
@@ -928,12 +932,12 @@ function TaskDetailSheet({
                         </TableBody>
                       </Table>
                     ) : (
-                      <p className="m-0 whitespace-pre-wrap break-words leading-relaxed">
+                      <p className="m-0 leading-relaxed break-words whitespace-pre-wrap">
                         {transcript.text || <Trans>沒有逐字稿內容</Trans>}
                       </p>
                     )
                   ) : (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-muted-foreground text-sm">
                       <Trans>逐字稿會在模型生成時顯示。</Trans>
                     </p>
                   )}
@@ -941,7 +945,7 @@ function TaskDetailSheet({
                 {task.error || result?.truncated || task.status === "failed" ? (
                   <div className="flex min-w-0 flex-col gap-3 border-t pt-4">
                     {task.error ? (
-                      <p className="text-sm text-destructive">{task.error}</p>
+                      <p className="text-destructive text-sm">{task.error}</p>
                     ) : null}
                     {result?.truncated ? (
                       <Alert variant="destructive">

@@ -24,11 +24,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu,
@@ -89,10 +85,10 @@ function SettingsSection({
   return (
     <section className="flex min-w-0 flex-col gap-4">
       <div className="flex min-w-0 flex-col gap-1">
-        <h2 className="font-heading text-lg font-semibold leading-snug">
+        <h2 className="font-heading text-lg leading-snug font-semibold">
           {title}
         </h2>
-        <p className="text-sm/relaxed text-muted-foreground">{description}</p>
+        <p className="text-muted-foreground text-sm/relaxed">{description}</p>
       </div>
       {children}
     </section>
@@ -176,7 +172,7 @@ function ModelCard({
               value={downloadProgress.percent}
               aria-label={i18n._(msg`模型下載進度`)}
             />
-            <div className="flex justify-between gap-2 text-xs text-muted-foreground">
+            <div className="text-muted-foreground flex justify-between gap-2 text-xs">
               <span className="truncate">
                 {downloadProgress.currentFile ?? downloadProgress.message}
               </span>
@@ -185,14 +181,14 @@ function ModelCard({
           </div>
         ) : null}
         {!ready && model.missingFiles.length ? (
-          <p className="m-0 text-xs text-muted-foreground">
+          <p className="text-muted-foreground m-0 text-xs">
             <Trans>目前還缺少 {model.missingFiles.length} 個檔案。</Trans>
           </p>
         ) : null}
       </CardContent>
 
-      <CardFooter className="justify-between gap-3 max-[420px]:flex-col max-[420px]:items-stretch py-2">
-        <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+      <CardFooter className="justify-between gap-3 py-2 max-[420px]:flex-col max-[420px]:items-stretch">
+        <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
           <HardDriveIcon className="size-4 shrink-0" aria-hidden="true" />
           <span className="truncate">
             <Trans>約 {downloadSize}</Trans>
@@ -364,7 +360,7 @@ export function SettingsPanel({
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {!ffmpeg.available ? (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 <Trans>請安裝 FFmpeg 後重新檢查。</Trans>
               </p>
             ) : null}

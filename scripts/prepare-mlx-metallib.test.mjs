@@ -13,10 +13,9 @@ test("finds metallibs from mlx-sys Cargo build directories", (t) => {
   const currentPath = createMetallib(targetRoot, "release", "mlx-sys-current");
   createMetallib(targetRoot, "release", "unrelated-crate-build");
 
-  assert.deepEqual(
-    findMetallibs([targetRoot], ["release"]).sort(),
-    [currentPath],
-  );
+  assert.deepEqual(findMetallibs([targetRoot], ["release"]).sort(), [
+    currentPath,
+  ]);
 });
 
 test("only searches the requested Cargo profile", (t) => {
@@ -30,7 +29,16 @@ test("only searches the requested Cargo profile", (t) => {
 });
 
 function createMetallib(targetRoot, profile, buildDirectory) {
-  const metallibPath = path.join(targetRoot, profile, "build", buildDirectory, "out", "build", "lib", "mlx.metallib");
+  const metallibPath = path.join(
+    targetRoot,
+    profile,
+    "build",
+    buildDirectory,
+    "out",
+    "build",
+    "lib",
+    "mlx.metallib"
+  );
   fs.mkdirSync(path.dirname(metallibPath), { recursive: true });
   fs.writeFileSync(metallibPath, buildDirectory);
   return metallibPath;

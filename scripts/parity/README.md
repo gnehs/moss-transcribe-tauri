@@ -6,11 +6,11 @@ it is not packaged with the Tauri application and never downloads a model.
 
 ## Pinned inputs
 
-| Component | Revision |
-| --- | --- |
+| Component                               | Revision                                   |
+| --------------------------------------- | ------------------------------------------ |
 | `OpenMOSS-Team/MOSS-Transcribe-Diarize` | `d7231bbae2587a4af278735eb765b318c4f64edd` |
-| `Blaizzy/mlx-audio` | `64e8416c303fb3b3463dab8eb4ebd78c55a87c1a` |
-| `mlx-rs` | `f4aa309c79b6be35255ca7d34157dfc10d9ed4c9` |
+| `Blaizzy/mlx-audio`                     | `64e8416c303fb3b3463dab8eb4ebd78c55a87c1a` |
+| `mlx-rs`                                | `f4aa309c79b6be35255ca7d34157dfc10d9ed4c9` |
 
 Create a Python environment outside the app dependency graph, install
 `requirements.txt`, and point it at an already-downloaded snapshot and a local

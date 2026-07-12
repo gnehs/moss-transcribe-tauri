@@ -1,5 +1,5 @@
 allowBuilds:
-  '@ibm/plex-sans-jp': false
-  '@ibm/plex-sans-sc': false
-  '@ibm/plex-sans-tc': false
+  "@ibm/plex-sans-jp": false
+  "@ibm/plex-sans-sc": false
+  "@ibm/plex-sans-tc": false
   esbuild: true

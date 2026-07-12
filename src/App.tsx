@@ -25,30 +25,30 @@ import { useTranscriptionWorkspace } from "@/hooks/use-transcription-workspace";
 function App() {
   const workspace = useTranscriptionWorkspace();
   const hasFinishedTasks = workspace.tasks.some(
-    (task) => task.status === "completed",
+    (task) => task.status === "completed"
   );
   const shouldShowDragOverlay =
     workspace.isDraggingFiles && workspace.tasks.length > 0;
 
   return (
     <TooltipProvider>
-      <main className="min-h-screen bg-background">
+      <main className="bg-background min-h-screen">
         <Toaster richColors closeButton position="bottom-right" />
-        <section className="flex h-screen min-h-0 flex-col overflow-hidden bg-background">
+        <section className="bg-background flex h-screen min-h-0 flex-col overflow-hidden">
           {shouldShowDragOverlay ? (
             <div
-              className="fixed inset-3 z-50 grid place-items-center rounded-xl border-2 border-dashed border-primary/40 bg-primary/10 text-center ring-1 ring-inset ring-primary/20"
+              className="border-primary/40 bg-primary/10 ring-primary/20 fixed inset-3 z-50 grid place-items-center rounded-xl border-2 border-dashed text-center ring-1 ring-inset"
               role="status"
               aria-live="polite"
             >
               <div className="flex flex-col items-center gap-2 text-center">
-                <div className="mb-2 grid size-16 place-items-center rounded-lg bg-primary/10 text-primary">
+                <div className="bg-primary/10 text-primary mb-2 grid size-16 place-items-center rounded-lg">
                   <FileUpIcon className="size-8" />
                 </div>
-                <strong className="font-heading text-2xl font-semibold leading-tight">
+                <strong className="font-heading text-2xl leading-tight font-semibold">
                   <Trans>把檔案拖到這裡</Trans>
                 </strong>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-muted-foreground text-sm">
                   <Trans>放開即可建立轉錄任務</Trans>
                 </span>
               </div>
@@ -95,7 +95,7 @@ function App() {
                       <Trans>管理 MOSS 模型、本機工具與執行環境。</Trans>
                     </SheetDescription>
                   </SheetHeader>
-                  <div className="scroll-fade min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-2">
+                  <div className="scroll-fade min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-6">
                     <SettingsPanel
                       model={workspace.model}
                       ffmpeg={workspace.ffmpeg}
