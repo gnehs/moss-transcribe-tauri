@@ -27,13 +27,15 @@ function App() {
   const hasFinishedTasks = workspace.tasks.some(
     (task) => task.status === "completed",
   );
+  const shouldShowDragOverlay =
+    workspace.isDraggingFiles && workspace.tasks.length > 0;
 
   return (
     <TooltipProvider>
       <main className="min-h-screen bg-background">
         <Toaster richColors closeButton position="top-right" />
         <section className="flex h-screen min-h-0 flex-col overflow-hidden bg-background">
-          {workspace.isDraggingFiles ? (
+          {shouldShowDragOverlay ? (
             <div
               className="fixed inset-3 z-50 grid place-items-center rounded-xl border-2 border-dashed border-primary/40 bg-primary/10 text-center ring-1 ring-inset ring-primary/20"
               role="status"

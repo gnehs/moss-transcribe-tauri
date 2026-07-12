@@ -678,16 +678,16 @@ function TaskDetailSheet({
             <div className="bg-foreground/[0.03] px-6 max-[720px]:px-4">
               <TabsList
                 variant="line"
-                className="w-full justify-start gap-[18px] overflow-x-auto rounded-none p-0"
+                className="w-full justify-start gap-[18px] rounded-none p-0"
               >
                 <TabsTrigger
-                  className="flex-none px-0 pb-2 pt-2 after:bottom-[-1px] after:h-0.5"
+                  className="flex-none px-0 pb-2 pt-2"
                   value="statistics"
                 >
                   <Trans>統計資訊</Trans>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="flex-none px-0 pb-2 pt-2 after:bottom-[-1px] after:h-0.5"
+                  className="flex-none px-0 pb-2 pt-2"
                   value="transcript"
                 >
                   <Trans>逐字稿</Trans>
@@ -700,7 +700,7 @@ function TaskDetailSheet({
               viewportClassName="scroll-fade"
             >
               <div className="flex min-w-0 flex-col gap-5">
-                <div className="flex min-w-0 flex-col gap-3 border-b pb-4">
+                <div className="flex min-w-0 flex-col gap-3 pb-4">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <TaskDetailSectionTitle>
                       <Trans>任務進度</Trans>
