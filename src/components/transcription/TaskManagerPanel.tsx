@@ -53,9 +53,11 @@ import {
   InputGroupInput,
   InputGroupTextarea,
 } from "@/components/ui/input-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
@@ -63,7 +65,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -172,27 +173,67 @@ function TaskEtaBadge({ task, now }: { task: TranscriptionTask; now: number }) {
   );
 }
 
-function TaskOutputSwitch({
+function TaskOutputCheckbox({
   id,
   label,
   description,
   checked,
+  disabled,
   onCheckedChange,
 }: {
   id: string;
   label: ReactNode;
   description: ReactNode;
   checked: boolean;
+  disabled?: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
+  const labelId = `${id}-label`;
+
   return (
     <Field orientation="horizontal">
       <FieldContent>
-        <FieldTitle id={id}>{label}</FieldTitle>
+        <FieldTitle id={labelId}>{label}</FieldTitle>
+        <FieldDescription>{description}</FieldDescription>
+      </FieldContent>
+      <Checkbox
+        id={id}
+        aria-labelledby={labelId}
+        disabled={disabled}
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(next)}
+      />
+    </Field>
+  );
+}
+
+function TaskOutputSwitch({
+  id,
+  label,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  id: string;
+  label: ReactNode;
+  description: ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const labelId = `${id}-label`;
+
+  return (
+    <Field orientation="horizontal">
+      <FieldContent>
+        <FieldTitle id={labelId}>{label}</FieldTitle>
         <FieldDescription>{description}</FieldDescription>
       </FieldContent>
       <Switch
-        aria-labelledby={id}
+        id={id}
+        aria-labelledby={labelId}
+        disabled={disabled}
         checked={checked}
         onCheckedChange={onCheckedChange}
       />
@@ -302,11 +343,30 @@ export function TaskManagerPanel({
   const hasActiveTasks = tasks.some((task) =>
     ["preparing", "encoding", "prefilling", "generating"].includes(task.status)
   );
+  const enabledOutputFormats =
+    (taskDraft.outputs.txt ? 1 : 0) +
+    (taskDraft.outputs.json ? 1 : 0) +
+    (taskDraft.outputs.srt ? 1 : 0);
+  const hasSelectedOutput = enabledOutputFormats > 0;
+  const canSubmitTask = taskDraft.inputPaths.length > 0 && hasSelectedOutput;
+  const isSingleOutputSelected = enabledOutputFormats === 1;
   const isModelDownloadPending = isConfirmingTasks;
   const modelDownloadPercent = Math.max(
     0,
     Math.min(100, downloadProgress?.percent ?? 0)
   );
+
+  const onOutputCheckedChange = (
+    key: keyof TaskDraft["outputs"],
+    checked: boolean
+  ) => {
+    if (!checked && isSingleOutputSelected) return;
+
+    onTaskDraftChange((current) => ({
+      ...current,
+      outputs: { ...current.outputs, [key]: checked },
+    }));
+  };
 
   useEffect(() => {
     if (!hasActiveTasks) return;
@@ -517,32 +577,29 @@ export function TaskManagerPanel({
                 <DialogTitle>
                   <Trans>新增轉錄任務</Trans>
                 </DialogTitle>
-                <DialogDescription>
-                  <Trans>
-                    {taskDraft.inputPaths.length} 個檔案將依序使用固定的 MOSS
-                    模型處理。
-                  </Trans>
-                </DialogDescription>
               </DialogHeader>
               <div className="scroll-fade flex max-h-[min(620px,calc(100vh-220px))] min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto p-1">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel>
-                      <Trans>模型</Trans>
-                    </FieldLabel>
-                    <InputGroup>
-                      <InputGroupInput
-                        readOnly
-                        value="OpenMOSS-Team/MOSS-Transcribe-Diarize"
-                      />
-                      <InputGroupAddon align="inline-end">
-                        <Trans>固定</Trans>
-                      </InputGroupAddon>
-                    </InputGroup>
-                  </Field>
-                  <Field>
                     <FieldLabel htmlFor="task-output-dir">
-                      <Trans>輸出資料夾</Trans>
+                      <span className="flex w-full items-center justify-between gap-2">
+                        <Trans>輸出資料夾</Trans>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onTaskDraftChange((current) => ({
+                              ...current,
+                              outputDir: "",
+                            }));
+                          }}
+                          title={i18n._(msg`重置輸出資料夾`)}
+                        >
+                          <RotateCcwIcon className="size-3.5" />
+                          <Trans>重置</Trans>
+                        </Button>
+                      </span>
                     </FieldLabel>
                     <InputGroup>
                       <InputGroupInput
@@ -559,50 +616,45 @@ export function TaskManagerPanel({
                       </InputGroupAddon>
                     </InputGroup>
                   </Field>
-                  <TaskOutputSwitch
+                  <TaskOutputCheckbox
                     id="task-write-txt"
                     label={<Trans>輸出 TXT</Trans>}
                     description={<Trans>純文字轉錄稿。</Trans>}
                     checked={taskDraft.outputs.txt}
+                    disabled={isSingleOutputSelected && taskDraft.outputs.txt}
                     onCheckedChange={(checked) =>
-                      onTaskDraftChange((current) => ({
-                        ...current,
-                        outputs: { ...current.outputs, txt: checked },
-                      }))
+                      onOutputCheckedChange("txt", checked)
                     }
                   />
-                  <TaskOutputSwitch
+                  <TaskOutputCheckbox
                     id="task-write-json"
                     label={<Trans>輸出 JSON</Trans>}
                     description={<Trans>保留說話者與時間區段。</Trans>}
                     checked={taskDraft.outputs.json}
+                    disabled={isSingleOutputSelected && taskDraft.outputs.json}
                     onCheckedChange={(checked) =>
-                      onTaskDraftChange((current) => ({
-                        ...current,
-                        outputs: { ...current.outputs, json: checked },
-                      }))
+                      onOutputCheckedChange("json", checked)
                     }
                   />
-                  <TaskOutputSwitch
+                  <TaskOutputCheckbox
                     id="task-write-srt"
                     label={<Trans>輸出 SRT</Trans>}
                     description={<Trans>建立字幕檔。</Trans>}
                     checked={taskDraft.outputs.srt}
+                    disabled={isSingleOutputSelected && taskDraft.outputs.srt}
                     onCheckedChange={(checked) =>
-                      onTaskDraftChange((current) => ({
-                        ...current,
-                        outputs: { ...current.outputs, srt: checked },
-                      }))
+                      onOutputCheckedChange("srt", checked)
                     }
                   />
+                  {!hasSelectedOutput ? (
+                    <FieldDescription className="text-destructive">
+                      <Trans>至少要勾選一個輸出格式。</Trans>
+                    </FieldDescription>
+                  ) : null}
                   <TaskOutputSwitch
                     id="task-convert-traditional"
                     label={<Trans>簡體轉繁體</Trans>}
-                    description={
-                      <Trans>
-                        將轉錄結果轉為台灣繁體中文，套用於畫面與所有匯出檔。
-                      </Trans>
-                    }
+                    description={<Trans>將轉錄結果轉為台灣繁體中文。</Trans>}
                     checked={taskDraft.convertToTraditional}
                     onCheckedChange={(checked) =>
                       onTaskDraftChange((current) => ({
@@ -639,7 +691,7 @@ export function TaskManagerPanel({
                         key={path}
                         className="flex min-w-0 items-center gap-2 overflow-hidden border-b px-2.5 py-2 text-sm last:border-b-0"
                       >
-                        <FileAudioIcon className="size-4 shrink-0 text-muted-foreground" />
+                        <FileAudioIcon className="text-muted-foreground size-4 shrink-0" />
                         <span
                           className="min-w-0 flex-1 truncate"
                           title={basename(path)}
@@ -664,7 +716,7 @@ export function TaskManagerPanel({
                   <Trans>取消</Trans>
                 </Button>
                 <Button
-                  disabled={!taskDraft.inputPaths.length || isConfirmingTasks}
+                  disabled={!canSubmitTask || isConfirmingTasks}
                   onClick={onConfirmTaskDraft}
                 >
                   <ListPlusIcon data-icon="inline-start" />

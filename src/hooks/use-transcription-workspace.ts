@@ -4,6 +4,11 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 
@@ -178,6 +183,23 @@ function systemFallback(): SystemInfo {
   };
 }
 
+async function notifyTranscriptionComplete(inputPath: string) {
+  try {
+    let permissionGranted = await isPermissionGranted();
+    if (!permissionGranted) {
+      permissionGranted = (await requestPermission()) === "granted";
+    }
+    if (!permissionGranted) return;
+
+    sendNotification({
+      title: "MOSS Transcribe Studio",
+      body: i18n._(msg`${basename(inputPath)} 已完成`),
+    });
+  } catch {
+    // Notifications are best-effort and must not affect task completion.
+  }
+}
+
 export function useTranscriptionWorkspace() {
   const [tasks, setTasks] = useState<TranscriptionTask[]>([]);
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(readStoredTaskDraft);
@@ -309,6 +331,7 @@ export function useTranscriptionWorkspace() {
       } else {
         toast.success(i18n._(msg`${basename(task.inputPath)} 已完成`));
       }
+      void notifyTranscriptionComplete(task.inputPath);
     } catch (error) {
       const message = formatInvokeError(error);
       const completedAt = Date.now();
@@ -416,6 +439,14 @@ export function useTranscriptionWorkspace() {
 
   async function confirmTaskDraft() {
     if (!taskDraft.inputPaths.length || isConfirmingTasks) return;
+    if (
+      !taskDraft.outputs.txt &&
+      !taskDraft.outputs.json &&
+      !taskDraft.outputs.srt
+    ) {
+      toast.error(i18n._(msg`至少要勾選一個輸出格式。`));
+      return;
+    }
     setIsConfirmingTasks(true);
     try {
       if (!model.installed) await downloadModel();
