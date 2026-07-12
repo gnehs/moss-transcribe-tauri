@@ -238,14 +238,19 @@ function TaskDetailStat({
         <div className="truncate text-xs leading-snug text-muted-foreground">
           {label}
         </div>
-        <div className="mt-0.5 text-base font-semibold leading-snug tabular-nums">
+        <div
+          className={cn(
+            "mt-0.5 text-base font-semibold leading-snug tabular-nums",
+            detail && "flex flex-wrap items-baseline gap-x-2 gap-y-0.5",
+          )}
+        >
           {value}
+          {detail ? (
+            <div className="flex min-w-0 items-center gap-1 text-xs font-normal leading-snug text-muted-foreground">
+              {detail}
+            </div>
+          ) : null}
         </div>
-        {detail ? (
-          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-snug text-muted-foreground">
-            {detail}
-          </div>
-        ) : null}
       </div>
     </div>
   );
