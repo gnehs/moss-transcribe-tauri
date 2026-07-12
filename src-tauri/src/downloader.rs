@@ -33,6 +33,25 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
         .ok_or_else(|| AppError::Model("Invalid Hugging Face repository".into()))?;
     let repo = client.model(owner, name);
     let total_files = MODEL_FILES.len();
+    let file_sizes = MODEL_FILES
+        .iter()
+        .map(|file| {
+            let path = model_dir.join(file);
+            if path.is_file() && !force {
+                fs::metadata(path)
+                    .map(|metadata| metadata.len())
+                    .map_err(AppError::from)
+            } else {
+                repo.get_file_metadata()
+                    .filepath((*file).to_string())
+                    .revision(MODEL_REVISION.to_string())
+                    .send()
+                    .map(|metadata| metadata.file_size)
+                    .map_err(|error| AppError::Download(error.to_string()))
+            }
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    let total_bytes = file_sizes.iter().sum::<u64>();
 
     emit(
         &app,
@@ -43,7 +62,7 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
             file_index: 0,
             total_files,
             file_bytes_completed: 0,
-            file_total_bytes: 0,
+            file_total_bytes: total_bytes,
             speed_bytes_per_sec: 0.0,
             percent: 0.0,
             message: "Preparing model download".into(),
@@ -52,6 +71,8 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
 
     for (index, file) in MODEL_FILES.iter().enumerate() {
         if model_dir.join(file).is_file() && !force {
+            let file_size = file_sizes[index];
+            let completed_bytes = file_sizes[..=index].iter().sum::<u64>();
             emit(
                 &app,
                 DownloadProgress {
@@ -60,10 +81,10 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
                     current_file: Some((*file).into()),
                     file_index: index + 1,
                     total_files,
-                    file_bytes_completed: 1,
-                    file_total_bytes: 1,
+                    file_bytes_completed: file_size,
+                    file_total_bytes: file_size,
                     speed_bytes_per_sec: 0.0,
-                    percent: (index + 1) as f64 / total_files as f64 * 100.0,
+                    percent: download_percent(completed_bytes, total_bytes),
                     message: format!("{file} is already available"),
                 },
             );
@@ -75,6 +96,9 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
             file: (*file).into(),
             index,
             total_files,
+            file_total_bytes: file_sizes[index],
+            completed_bytes_before_file: file_sizes[..index].iter().sum(),
+            total_bytes,
             last_sample: Mutex::new((Instant::now(), 0)),
         };
         repo.download_file()
@@ -96,8 +120,8 @@ pub fn download_model(app: AppHandle, force: bool) -> AppResult<ModelStatus> {
             current_file: None,
             file_index: total_files,
             total_files,
-            file_bytes_completed: 1,
-            file_total_bytes: 1,
+            file_bytes_completed: total_bytes,
+            file_total_bytes: total_bytes,
             speed_bytes_per_sec: 0.0,
             percent: 100.0,
             message: "Model is ready".into(),
@@ -134,6 +158,9 @@ struct DownloadProgressHandler {
     file: String,
     index: usize,
     total_files: usize,
+    file_total_bytes: u64,
+    completed_bytes_before_file: u64,
+    total_bytes: u64,
     last_sample: Mutex<(Instant, u64)>,
 }
 
@@ -179,20 +206,20 @@ impl ProgressHandler for DownloadProgressHandler {
                 bytes_per_sec.unwrap_or(0.0),
                 "downloading",
             ),
-            DownloadEvent::Complete => self.emit(1, 1, 0.0, "fileComplete"),
+            DownloadEvent::Complete => self.emit(
+                self.file_total_bytes,
+                self.file_total_bytes,
+                0.0,
+                "fileComplete",
+            ),
         }
     }
 }
 
 impl DownloadProgressHandler {
     fn emit(&self, completed: u64, total: u64, speed: f64, state: &str) {
-        let file_fraction = if total == 0 {
-            0.0
-        } else {
-            completed as f64 / total as f64
-        };
-        let percent = ((self.index as f64 + file_fraction) / self.total_files as f64 * 100.0)
-            .clamp(0.0, 100.0);
+        let completed_bytes = self.completed_bytes_before_file.saturating_add(completed);
+        let percent = download_percent(completed_bytes, self.total_bytes);
         emit(
             &self.app,
             DownloadProgress {
@@ -208,6 +235,29 @@ impl DownloadProgressHandler {
                 message: format!("Downloading {}", self.file),
             },
         );
+    }
+}
+
+fn download_percent(completed_bytes: u64, total_bytes: u64) -> f64 {
+    if total_bytes == 0 {
+        return 0.0;
+    }
+    (completed_bytes as f64 / total_bytes as f64 * 100.0).clamp(0.0, 100.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::download_percent;
+
+    #[test]
+    fn download_percent_uses_byte_weight() {
+        assert_eq!(download_percent(1, 101), 100.0 / 101.0);
+        assert_eq!(download_percent(101, 101), 100.0);
+    }
+
+    #[test]
+    fn download_percent_handles_empty_total() {
+        assert_eq!(download_percent(0, 0), 0.0);
     }
 }
 
