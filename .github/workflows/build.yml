@@ -1,0 +1,116 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust-macos14
+          workspaces: ./src-tauri -> target
+          cache-on-failure: false
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Check Rust
+        working-directory: src-tauri
+        run: cargo check --locked
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Build Tauri DMG
+        run: pnpm tauri build --bundles dmg --ci --verbose
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v7
+        with:
+          name: moss-transcribe-studio-macos-arm64-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  publish-release:
+    name: Publish macOS release
+    if: github.ref_type == 'tag'
+    needs: build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v5
+        with:
+          name: moss-transcribe-studio-macos-arm64-dmg
+          path: release-assets
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_notes=$'此版本為未簽名的 macOS 應用程式。\n\n若 macOS 阻擋開啟，請先將 App 拖曳至「應用程式」，再於終端機執行：\n\n    xattr -cr "/Applications/MOSS Transcribe Studio.app"\n\n---\n\nThis is an unsigned macOS application. If macOS blocks first launch, drag MOSS Transcribe Studio.app into Applications and then run the following command:\n\n    xattr -cr "/Applications/MOSS Transcribe Studio.app"'
+
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber \
+              release-assets/*.dmg
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --title "MOSS Transcribe Studio ${GITHUB_REF_NAME}" \
+              --notes "$release_notes" \
+              --generate-notes \
+              release-assets/*.dmg
+          fi
