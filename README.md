@@ -7,6 +7,12 @@ Silicon Macs. It runs `OpenMOSS-Team/MOSS-Transcribe-Diarize` with Rust,
 `mlx-rs`, and Metal, supports timestamps and speaker diarization, and exports
 TXT, JSON, and SRT files. Python and PyTorch are not required at runtime.
 
+## Install with Homebrew
+
+```sh
+brew install --cask gnehs/tap/moss-transcribe-studio
+```
+
 ## Install from a release
 
 1. Open the [latest GitHub release](https://github.com/gnehs/moss-transcribe-tauri/releases/latest).

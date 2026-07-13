@@ -6,6 +6,12 @@ Apple Silicon macOS 專用的原生長音訊轉錄工具。App 透過 Rust、`ml
 與 Metal 執行 `OpenMOSS-Team/MOSS-Transcribe-Diarize`，支援時間戳、說話者
 辨識，以及 TXT、JSON、SRT 匯出；正式執行不需要 Python 或 PyTorch。
 
+## 使用 Homebrew 安裝
+
+```sh
+brew install --cask gnehs/tap/moss-transcribe-studio
+```
+
 ## 從 Release 安裝
 
 1. 前往 [最新版 GitHub Release](https://github.com/gnehs/moss-transcribe-tauri/releases/latest)。
