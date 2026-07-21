@@ -114,3 +114,11 @@ jobs:
               --generate-notes \
               release-assets/*.dmg
           fi
+
+      - name: Trigger Homebrew tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          gh workflow run update-casks.yml \
+            --repo gnehs/homebrew-tap \
+            --ref main
